@@ -49,23 +49,25 @@ BEGIN
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        -- Перевірка існування активного клієнта
-        IF NOT EXISTS (SELECT 1 FROM dbo.Clients WHERE Id = @ClientId AND IsDeleted = 0)
-        BEGIN
-            ;THROW 50001, N'Клієнта з вказаним ідентифікатором не знайдено або його видалено.', 1;
-        END
-
-        -- Перевірка наявності хоча б однієї послуги у замовленні
+        -- Перевірка наявності хоча б однієї послуги у вхідному параметрі TVP
         IF NOT EXISTS (SELECT 1 FROM @Items)
         BEGIN
             ;THROW 50005, N'Запис повинен містити щонайменше одну послугу.', 1;
         END
 
-        -- Перевірка, що всі передані ServiceId існують у локальній таблиці Services
+        BEGIN TRANSACTION;
+
+        -- Перевірка існування активного клієнта з утриманням блокування до кінця транзакції
+        IF NOT EXISTS (SELECT 1 FROM dbo.Clients WITH (HOLDLOCK, ROWLOCK) WHERE Id = @ClientId AND IsDeleted = 0)
+        BEGIN
+            ;THROW 50001, N'Клієнта з вказаним ідентифікатором не знайдено або його видалено.', 1;
+        END
+
+        -- Перевірка, що всі передані ServiceId існують у локальній таблиці Services (HOLDLOCK проти гонки цін)
         IF EXISTS (
             SELECT 1
             FROM @Items i
-            LEFT JOIN dbo.Services s ON s.Id = i.ServiceId
+            LEFT JOIN dbo.Services s WITH (HOLDLOCK) ON s.Id = i.ServiceId
             WHERE s.Id IS NULL
         )
         BEGIN
@@ -76,7 +78,7 @@ BEGIN
         IF EXISTS (
             SELECT 1
             FROM @Items i
-            INNER JOIN dbo.Services s ON s.Id = i.ServiceId
+            INNER JOIN dbo.Services s WITH (HOLDLOCK) ON s.Id = i.ServiceId
             WHERE i.Discount > (s.Price * i.Quantity)
         )
         BEGIN
@@ -86,9 +88,7 @@ BEGIN
         DECLARE @CalculatedTotal DECIMAL(18,2);
         SELECT @CalculatedTotal = SUM((s.Price * i.Quantity) - i.Discount)
         FROM @Items i
-        INNER JOIN dbo.Services s ON s.Id = i.ServiceId;
-
-        BEGIN TRANSACTION;
+        INNER JOIN dbo.Services s WITH (HOLDLOCK) ON s.Id = i.ServiceId;
 
         -- 1. Створення кореневого запису Appointment
         INSERT INTO dbo.Appointments
@@ -148,7 +148,7 @@ BEGIN
             i.Discount,
             i.Quantity
         FROM @Items i
-        INNER JOIN dbo.Services s ON s.Id = i.ServiceId;
+        INNER JOIN dbo.Services s WITH (HOLDLOCK) ON s.Id = i.ServiceId;
 
         -- 4. Запис початкового стану в історію статусів
         INSERT INTO dbo.AppointmentStatusHistory
@@ -322,9 +322,9 @@ BEGIN
             ;THROW 50001, N'Запис для реєстрації оплати не знайдено.', 1;
         END
 
-        IF @CurrentStatus = N'Cancelled'
+        IF @CurrentStatus IN (N'Cancelled', N'Delivered')
         BEGIN
-            ;THROW 50003, N'Неможливо зареєструвати оплату для скасованого запису.', 1;
+            ;THROW 50003, N'Неможливо зареєструвати оплату для скасованого або вже закритого (Delivered) запису.', 1;
         END
 
         DECLARE @AlreadyPaid DECIMAL(18,2);

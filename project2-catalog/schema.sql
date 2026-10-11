@@ -214,3 +214,18 @@ BEGIN
     PRINT N'Індекс [IX_ServiceImages_ServiceId_IsMain] створено.';
 END
 GO
+
+-- 4. Унікальний фільтрований індекс: гарантує, що у кожної послуги може бути щонайбільше одне головне фото (IsMain = 1)
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'UX_ServiceImages_ServiceId_MainOnly'
+      AND object_id = OBJECT_ID(N'dbo.ServiceImages')
+)
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_ServiceImages_ServiceId_MainOnly
+        ON dbo.ServiceImages (ServiceId)
+        INCLUDE (Url)
+        WHERE IsMain = 1;
+    PRINT N'Унікальний фільтрований індекс [UX_ServiceImages_ServiceId_MainOnly] створено.';
+END
+GO

@@ -11,9 +11,13 @@
 | `AppointmentItems.ServiceName, UnitPrice` | БД Записів (`DetailingBookings`) | `Service` (Каталог `DetailingCatalog`) | знімок на момент запису, не оновлюється |
 | `Services.Name, Price, DurationMin` | БД Записів (`DetailingBookings`) | `Service` (Каталог `DetailingCatalog`) | копія для читання, оновлюється подіями з Каталогу |
 | `reviews.serviceName` | MongoDB (`detailing_reviews`) | `Service` (Каталог `DetailingCatalog`) | копія, оновлюється подіями з Каталогу |
+| `discussions.targetName` | MongoDB (`detailing_reviews`) | `Service` / `Package` (Каталог `DetailingCatalog`) | копія, оновлюється подіями з Каталогу |
 | `reviews.verifiedVisit` | MongoDB (`detailing_reviews`) | `Appointments` (БД Записів `DetailingBookings`) | знімок на момент публікації відгуку |
+| `reviews.author.fullName, carInfo` | MongoDB (`detailing_reviews`) | `Clients`, `AppointmentDetails` (БД Записів `DetailingBookings`) | знімок на момент публікації відгуку |
 | `workReports.serviceName` | MongoDB (`detailing_reviews`) | `Service` (Каталог `DetailingCatalog`) | знімок на момент звіту |
-| `workReports.appointmentId, reviews.appointmentId` | MongoDB (`detailing_reviews`) | `Appointments` (БД Записів `DetailingBookings`) | лише ідентифікатор, без FK |
+| `workReports.carPlateNumber` | MongoDB (`detailing_reviews`) | `AppointmentDetails` (БД Записів `DetailingBookings`) | знімок на момент звіту |
+| `workReports.appointmentId, reviews.appointmentId, reviews.author.clientId` | MongoDB (`detailing_reviews`) | `Appointments`, `Clients` (БД Записів `DetailingBookings`) | лише ідентифікатор, без FK |
+| `AppointmentItems.ServiceId, reviews.serviceId, workReports.serviceId, discussions.targetId` | БД Записів (`DetailingBookings`), MongoDB (`detailing_reviews`) | `Service`, `Package` (Каталог `DetailingCatalog`) | лише ідентифікатор, без FK |
 
 ---
 

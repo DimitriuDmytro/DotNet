@@ -99,6 +99,7 @@ const reviewsSchema = {
         },
         comments: {
             bsonType: "array",
+            maxItems: 3,
             description: "Вкладений масив (до 3 останніх коментарів/відповідей)",
             items: {
                 bsonType: "object",
