@@ -1,0 +1,43 @@
+# Конфігурація для локального розгортання SQL Server 2022 та MongoDB 7.0
+# Примітка щодо безпеки: пароль передається через змінну оточення MSSQL_SA_PASSWORD
+# Наприклад: MSSQL_SA_PASSWORD="YourStrong!Password123" docker compose up -d
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: detailing-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?Будь ласка, задайте змінну оточення MSSQL_SA_PASSWORD}"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+      - ./project1-bookings:/scripts/project1-bookings:ro
+      - ./project2-catalog:/scripts/project2-catalog:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7.0
+    container_name: detailing-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./project3-reviews:/scripts/project3-reviews:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mssql_data:
+  mongo_data:

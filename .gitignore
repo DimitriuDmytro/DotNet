@@ -1,0 +1,36 @@
+# Ігнорування системних файлів ОС
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Середовище та секрети (жодних секретів у репозиторії)
+.env
+*.env
+*.local
+
+# IDE та редактори
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Артефакти збірки .NET
+bin/
+obj/
+out/
+
+# Тимчасові файли та бекапи баз даних
+*.bak
+*.mdf
+*.ldf
+*.ndf
+*.log
+*.tmp
+
+# Дані контейнерів Docker
+docker-data/
+mssql-data/
+mongo-data/
