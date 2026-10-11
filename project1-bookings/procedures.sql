@@ -9,6 +9,10 @@
 USE [DetailingBookings];
 GO
 
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+
 -- Переконуємося, що табличний тип існує перед створенням процедур
 IF TYPE_ID(N'dbo.AppointmentItemTableType') IS NULL
 BEGIN

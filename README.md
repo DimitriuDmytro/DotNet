@@ -58,14 +58,15 @@ MSSQL_SA_PASSWORD="ChangeMe_StrongPass123!" docker compose up -d
 Виконайте скрипти строго у вказаному порядку:
 `00_create_db.sql` $\rightarrow$ `schema.sql` $\rightarrow$ `procedures.sql` $\rightarrow$ `seed.sql` $\rightarrow$ `tests.sql`.
 
-#### Команди для локального SQL Server (Windows Authentication):
+#### Команди для локального SQL Server LocalDB / Express (Windows Authentication):
 ```powershell
-sqlcmd -S localhost -E -f 65001 -i project1-bookings/00_create_db.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingBookings -i project1-bookings/schema.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingBookings -i project1-bookings/procedures.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingBookings -i project1-bookings/seed.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingBookings -i project1-bookings/tests.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -i project1-bookings/00_create_db.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/schema.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/procedures.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/seed.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/tests.sql
 ```
+*(Якщо використовується повноцінний екземпляр SQL Server за замовчуванням, замініть `"(localdb)\MSSQLLocalDB"` на `localhost`).*
 
 #### Команди для SQL Server у Docker (SQL Authentication):
 ```powershell
@@ -83,12 +84,12 @@ sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d Detail
 Порядок запуску:
 `00_create_db.sql` $\rightarrow$ `schema.sql` $\rightarrow$ `seed.sql` $\rightarrow$ `tests.sql`.
 
-#### Команди для локального SQL Server (Windows Authentication):
+#### Команди для локального SQL Server LocalDB / Express (Windows Authentication):
 ```powershell
-sqlcmd -S localhost -E -f 65001 -i project2-catalog/00_create_db.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingCatalog -i project2-catalog/schema.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingCatalog -i project2-catalog/seed.sql
-sqlcmd -S localhost -E -f 65001 -d DetailingCatalog -i project2-catalog/tests.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -i project2-catalog/00_create_db.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i project2-catalog/schema.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i project2-catalog/seed.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i project2-catalog/tests.sql
 ```
 
 #### Команди для SQL Server у Docker (SQL Authentication):

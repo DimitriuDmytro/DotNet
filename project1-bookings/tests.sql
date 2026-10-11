@@ -18,6 +18,8 @@ USE [DetailingBookings];
 GO
 
 SET NOCOUNT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
 GO
 
 PRINT N'=========================================================================';
