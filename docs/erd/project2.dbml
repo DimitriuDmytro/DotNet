@@ -1,0 +1,80 @@
+// =========================================================================
+// Проєкт №2: Контекст "Каталог послуг" (DetailingCatalog)
+// Формат: DBML (для візуалізації на https://dbdiagram.io)
+// Схема спроєктована під перенесення в Entity Framework Core (Code First).
+// =========================================================================
+
+Project DetailingCatalog {
+  database_type: 'SQL Server'
+  Note: 'Контекст Каталогу послуг та пакетів (Catalog). Майбутній стек: EF Core Code First.'
+}
+
+Table ServiceCategories {
+  Id bigint [pk, increment]
+  Name nvarchar(100) [not null, unique]
+  Description nvarchar(500) [null]
+}
+
+Table Services {
+  Id bigint [pk, increment, note: 'Джерело істини (System of Record) для ідентифікаторів послуг у всіх контекстах']
+  CategoryId bigint [not null]
+  Name nvarchar(200) [not null, unique]
+  Price decimal(18,2) [not null, note: 'CHECK (Price > 0)']
+  DurationMin int [not null, note: 'CHECK (DurationMin > 0)']
+  CreatedAt datetime2 [not null, default: `SYSUTCDATETIME()`]
+  CreatedBy nvarchar(100) [not null, default: 'system']
+  UpdatedAt datetime2 [null]
+  UpdatedBy nvarchar(100) [null]
+  IsDeleted bit [not null, default: 0]
+  RowVersion rowversion [not null]
+
+  Indexes {
+    (CategoryId, Price) [name: 'IX_Services_CategoryId_Price']
+    (Name) [name: 'IX_Services_Name']
+  }
+}
+
+Table ServiceSpecs {
+  ServiceId bigint [pk, note: '1:1 із Services (PK = FK, ON DELETE CASCADE)']
+  Materials nvarchar(500) [not null]
+  WarrantyMonths int [not null, default: 0, note: 'CHECK (WarrantyMonths >= 0)']
+  Description nvarchar(2000) [not null]
+}
+
+Table ServiceImages {
+  Id bigint [pk, increment]
+  ServiceId bigint [not null]
+  Url nvarchar(500) [not null]
+  IsMain bit [not null, default: 0]
+
+  Indexes {
+    (ServiceId, IsMain) [name: 'IX_ServiceImages_ServiceId_IsMain']
+  }
+}
+
+Table Packages {
+  Id bigint [pk, increment]
+  Name nvarchar(150) [not null, unique]
+  Description nvarchar(1000) [null]
+  Price decimal(18,2) [not null, note: 'CHECK (Price > 0)']
+  CreatedAt datetime2 [not null, default: `SYSUTCDATETIME()`]
+  CreatedBy nvarchar(100) [not null, default: 'system']
+  UpdatedAt datetime2 [null]
+  UpdatedBy nvarchar(100) [null]
+  IsDeleted bit [not null, default: 0]
+  RowVersion rowversion [not null]
+}
+
+Table PackageServices {
+  PackageId bigint [pk, note: 'Складений PK (M:N), FK на Packages (ON DELETE CASCADE)']
+  ServiceId bigint [pk, note: 'Складений PK (M:N), FK на Services (ON DELETE NO ACTION)']
+  SortOrder int [not null, default: 1, note: 'CHECK (SortOrder > 0)']
+  AddedAt datetime2 [not null, default: `SYSUTCDATETIME()`]
+}
+
+// Зв'язки всередині бази DetailingCatalog:
+Ref FK_Services_ServiceCategories: Services.CategoryId > ServiceCategories.Id [delete: no action] // 1:N
+Ref FK_ServiceSpecs_Services: ServiceSpecs.ServiceId - Services.Id [delete: cascade] // 1:1
+Ref FK_ServiceImages_Services: ServiceImages.ServiceId > Services.Id [delete: cascade] // 1:N
+Ref FK_PackageServices_Packages: PackageServices.PackageId > Packages.Id [delete: cascade] // 1:N (частина M:N)
+Ref FK_PackageServices_Services: PackageServices.ServiceId > Services.Id [delete: no action] // 1:N (частина M:N)
