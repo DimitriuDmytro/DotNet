@@ -1,0 +1,84 @@
+[
+  {
+    "_id": { "$oid": "670900000000000000000401" },
+    "appointmentId": 1,
+    "serviceId": 7,
+    "serviceName": "Керамічне покриття кузова 9H",
+    "masterName": "Андрій Ковальчук",
+    "carPlateNumber": "AA7777OO",
+    "layers": 2,
+    "curingHours": 14,
+    "irLampBakingTempC": 60,
+    "hydrophobicContactAngleDeg": 112,
+    "checklist": [
+      { "step": "Знежирення кузова складом Gyeon Q2M Prep (двічі)", "done": true },
+      { "step": "Нанесення 1-го базового шару Gyeon Q2 Mohs EVO", "done": true },
+      { "step": "Нанесення 2-го фінішного шару Gyeon Q2 Mohs EVO через 2 години", "done": true },
+      {
+        "step": "Сушіння інфрачервоною лампою та консервація Q2 Cure",
+        "done": true,
+        "notes": "Витримано в сухому боксі 14 годин при вологості 45%"
+      }
+    ],
+    "materialsUsed": [
+      { "name": "Gyeon Q2 Mohs EVO", "amount": 35, "unit": "ml" },
+      { "name": "Gyeon Q2M Prep", "amount": 250, "unit": "ml" },
+      { "name": "Gyeon Q2M Cure", "amount": 40, "unit": "ml" },
+      { "name": "Аплікатори замшеві Gyeon", "amount": 4, "unit": "pcs" }
+    ],
+    "completedAt": { "$date": "2026-10-02T16:20:00Z" }
+  },
+  {
+    "_id": { "$oid": "670900000000000000000402" },
+    "appointmentId": 2,
+    "serviceId": 9,
+    "serviceName": "Повна хімчистка салону з розбором",
+    "masterName": "Тарас Мельничук",
+    "carPlateNumber": "KA2450CH",
+    "stainsRemoved": 7,
+    "dryingTimeHours": 6,
+    "seatsDismantled": true,
+    "leatherConditionerApplied": true,
+    "checklist": [
+      { "step": "Демонтаж передніх сидінь та дивана другого ряду", "done": true },
+      { "step": "Сухе та вологе чищення ковроліну екстрактором", "done": true },
+      {
+        "step": "Делікатне очищення перфорованої шкіри щіткою Pol Star",
+        "done": true,
+        "notes": "Виведено плями кави на правому задньому сидінні"
+      },
+      { "step": "Просочення шкіри кондиціонером Leather Star і сушіння", "done": true }
+    ],
+    "materialsUsed": [
+      { "name": "Koch Chemie Pol Star", "amount": 300, "unit": "ml" },
+      { "name": "Koch Chemie Mehrzweckreiniger (MZR)", "amount": 200, "unit": "ml" },
+      { "name": "Koch Chemie Leather Star", "amount": 120, "unit": "ml" }
+    ],
+    "completedAt": { "$date": "2026-10-04T15:30:00Z" }
+  },
+  {
+    "_id": { "$oid": "670900000000000000000404" },
+    "appointmentId": 3,
+    "serviceId": 5,
+    "serviceName": "Глибоке абразивне полірування кузова",
+    "masterName": "Андрій Ковальчук",
+    "carPlateNumber": "AA0911PP",
+    "paintThicknessBeforeMicrons": 132,
+    "paintThicknessAfterMicrons": 127,
+    "polishingStages": 3,
+    "glossMeterUnitsGU": 96,
+    "checklist": [
+      { "step": "Замір товщини ЛФП по 14 точках кузова та маскування пластику", "done": true },
+      { "step": "1-й етап: ріжуча паста Koch Chemie H9.02 на хутряному крузі", "done": true },
+      { "step": "2-й етап: середньоабразивна паста Koch Chemie F6.01", "done": true },
+      { "step": "3-й етап: антиголограмний фініш Koch Chemie M3.02", "done": true }
+    ],
+    "materialsUsed": [
+      { "name": "Koch Chemie Heavy Cut H9.02", "amount": 90, "unit": "ml" },
+      { "name": "Koch Chemie Fine Cut F6.01", "amount": 70, "unit": "ml" },
+      { "name": "Koch Chemie Micro Cut M3.02", "amount": 60, "unit": "ml" },
+      { "name": "Маскувальна стрічка 3M Automotive", "amount": 2, "unit": "rolls" }
+    ],
+    "completedAt": { "$date": "2026-10-11T15:10:00Z" }
+  }
+]
