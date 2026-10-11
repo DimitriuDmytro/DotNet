@@ -90,8 +90,9 @@ WHERE Id = @CrudClientId;
 PRINT N'[CRUD] Перевірка вибірки активних записів після Soft Delete (очікується 0 рядків):';
 EXEC dbo.usp_GetClientAppointments @ClientId = @CrudClientId;
 
--- Прибираємо тестовий запис та повертаємо клієнта у стан IsDeleted = 1, щоб не засмічувати вибірки
+-- Прибираємо тестовий запис та тестового клієнта після демонстрації CRUD/Soft Delete, щоб зберегти еталонний стан БД
 DELETE FROM dbo.Appointments WHERE Id = @CrudAppointmentId;
+DELETE FROM dbo.Clients WHERE Id = @CrudClientId;
 GO
 
 PRINT N'';
@@ -101,6 +102,11 @@ PRINT N'========================================================================
 
 DECLARE @LifecycleAppointmentId BIGINT;
 DECLARE @OrderItems dbo.AppointmentItemTableType;
+
+-- Ідемпотентне очищення попереднього тестового запису (якщо tests.sql запускається повторно)
+DELETE p FROM dbo.Payments p INNER JOIN dbo.AppointmentDetails d ON d.AppointmentId = p.AppointmentId WHERE d.PlateNumber = N'AA8899KX';
+DELETE h FROM dbo.AppointmentStatusHistory h INNER JOIN dbo.AppointmentDetails d ON d.AppointmentId = h.AppointmentId WHERE d.PlateNumber = N'AA8899KX';
+DELETE a FROM dbo.Appointments a INNER JOIN dbo.AppointmentDetails d ON d.AppointmentId = a.Id WHERE d.PlateNumber = N'AA8899KX';
 
 -- Обираємо 2 послуги: Трифазна нано-мийка (Id=2, 1200 грн) + Антидощ (Id=8, 1800 грн, знижка 100 грн)
 -- Очікуваний TotalAmount = 1200 + (1800 - 100) = 2900.00 грн
