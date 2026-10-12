@@ -13,14 +13,30 @@ SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO
 
--- Переконуємося, що табличний тип існує перед створенням процедур
+-- Переконуємося, що табличний тип існує з полями ServiceName та UnitPrice перед створенням процедур
+IF TYPE_ID(N'dbo.AppointmentItemTableType') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1
+       FROM sys.table_types tt
+       INNER JOIN sys.columns c ON c.object_id = tt.type_table_object_id
+       WHERE tt.name = N'AppointmentItemTableType' AND c.name = N'ServiceName'
+   )
+BEGIN
+    IF OBJECT_ID(N'dbo.usp_CreateAppointment', N'P') IS NOT NULL
+        DROP PROCEDURE dbo.usp_CreateAppointment;
+    DROP TYPE dbo.AppointmentItemTableType;
+END
+GO
+
 IF TYPE_ID(N'dbo.AppointmentItemTableType') IS NULL
 BEGIN
     CREATE TYPE dbo.AppointmentItemTableType AS TABLE
     (
-        ServiceId BIGINT        NOT NULL,
-        Quantity  INT           NOT NULL DEFAULT (1) CHECK (Quantity > 0),
-        Discount  DECIMAL(18,2) NOT NULL DEFAULT (0.00) CHECK (Discount >= 0),
+        ServiceId   BIGINT         NOT NULL,
+        ServiceName NVARCHAR(200)  NULL, -- Знімок назви послуги з BLL (якщо NULL, береться з dbo.Services)
+        UnitPrice   DECIMAL(18,2)  NULL CHECK (UnitPrice IS NULL OR UnitPrice > 0), -- Знімок ціни з BLL
+        Quantity    INT            NOT NULL DEFAULT (1) CHECK (Quantity > 0),
+        Discount    DECIMAL(18,2)  NOT NULL DEFAULT (0.00) CHECK (Discount >= 0),
         PRIMARY KEY (ServiceId)
     );
 END
@@ -30,8 +46,8 @@ GO
    1. usp_CreateAppointment
    Призначення: Створює новий запис (Appointments), деталі авто (AppointmentDetails),
                 позиції замовлення (AppointmentItems) через TVP зі знімком ServiceName
-                та UnitPrice із локальної таблиці Services, обчислює TotalAmount
-                і додає початковий запис у AppointmentStatusHistory.
+                та UnitPrice (переданим із BLL або з локальної таблиці Services),
+                фіксує TotalAmount і додає початковий запис у AppointmentStatusHistory.
    ------------------------------------------------------------------------- */
 CREATE OR ALTER PROCEDURE dbo.usp_CreateAppointment
     @ClientId         BIGINT,
@@ -41,6 +57,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateAppointment
     @PlateNumber      NVARCHAR(20),
     @Comment          NVARCHAR(1000) = NULL,
     @CreatedBy        NVARCHAR(100)  = N'system',
+    @TotalAmount      DECIMAL(18,2)  = NULL,
     @Items            dbo.AppointmentItemTableType READONLY,
     @NewAppointmentId BIGINT         = NULL OUTPUT
 AS
@@ -74,19 +91,19 @@ BEGIN
             ;THROW 50005, N'Одна або декілька вказаних послуг відсутні в локальному довіднику Services.', 1;
         END
 
-        -- Перевірка, що знижка не перевищує вартість позиції
+        -- Перевірка, що знижка не перевищує вартість позиції (за переданим знімком UnitPrice або s.Price)
         IF EXISTS (
             SELECT 1
             FROM @Items i
             INNER JOIN dbo.Services s WITH (HOLDLOCK) ON s.Id = i.ServiceId
-            WHERE i.Discount > (s.Price * i.Quantity)
+            WHERE i.Discount > (ISNULL(i.UnitPrice, s.Price) * i.Quantity)
         )
         BEGIN
             ;THROW 50005, N'Сума знижки по позиції не може перевищувати вартість послуги.', 1;
         END
 
         DECLARE @CalculatedTotal DECIMAL(18,2);
-        SELECT @CalculatedTotal = SUM((s.Price * i.Quantity) - i.Discount)
+        SELECT @CalculatedTotal = ISNULL(@TotalAmount, SUM((ISNULL(i.UnitPrice, s.Price) * i.Quantity) - i.Discount))
         FROM @Items i
         INNER JOIN dbo.Services s WITH (HOLDLOCK) ON s.Id = i.ServiceId;
 
@@ -130,7 +147,7 @@ BEGIN
             @Comment
         );
 
-        -- 3. Створення позицій запису зі знімком (Snapshot) ServiceName та UnitPrice
+        -- 3. Створення позицій запису зі знімком (Snapshot) ServiceName та UnitPrice (від BLL або з локальної Services)
         INSERT INTO dbo.AppointmentItems
         (
             AppointmentId,
@@ -143,8 +160,8 @@ BEGIN
         SELECT
             @NewAppointmentId,
             i.ServiceId,
-            s.Name,   -- Знімок назви послуги на момент запису
-            s.Price,  -- Знімок ціни послуги на момент запису
+            ISNULL(i.ServiceName, s.Name), -- Знімок назви послуги на момент запису (сформований у BLL)
+            ISNULL(i.UnitPrice, s.Price),  -- Знімок ціни послуги на момент запису (сформований у BLL)
             i.Discount,
             i.Quantity
         FROM @Items i
@@ -358,7 +375,13 @@ BEGIN
             SYSUTCDATETIME()
         );
 
+        DECLARE @NewPaymentId BIGINT = CAST(SCOPE_IDENTITY() AS BIGINT);
+
         COMMIT TRANSACTION;
+
+        SELECT Id, AppointmentId, Amount, Method, PaidAt
+        FROM dbo.Payments
+        WHERE Id = @NewPaymentId;
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0

@@ -23,13 +23,13 @@ public class CatalogQueryService : ICatalogQueryService
 
     public async Task<IReadOnlyList<CatalogServiceDto>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        var services = await _unitOfWork.CatalogServices.GetAllAsync(cancellationToken);
+        var services = await _unitOfWork.Services.GetAllAsync(cancellationToken);
         return _mapper.Map<IReadOnlyList<CatalogServiceDto>>(services);
     }
 
     public async Task<CatalogServiceDto?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
     {
-        var service = await _unitOfWork.CatalogServices.GetByServiceIdAsync(id, cancellationToken);
+        var service = await _unitOfWork.Services.GetByIdAsync(id, cancellationToken);
         return service == null ? null : _mapper.Map<CatalogServiceDto>(service);
     }
 
@@ -50,6 +50,6 @@ public class CatalogQueryService : ICatalogQueryService
         var entity = _mapper.Map<CatalogService>(dto);
         entity.Name = dto.Name.Trim();
 
-        await _unitOfWork.CatalogServices.UpsertAsync(entity, cancellationToken);
+        await _unitOfWork.Services.UpsertAsync(entity, cancellationToken);
     }
 }
