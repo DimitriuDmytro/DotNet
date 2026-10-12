@@ -21,6 +21,40 @@
 - **Кожна сутність належить рівно одному контексту** (єдине джерело істини — *System of Record*).
 - **Повна ідемпотентність усіх скриптів**: повторне виконання будь-якого скрипту (`00_create_db.sql`, `schema.sql`, `procedures.sql`, `seed.sql`, `init.js`, `seed.js`) не призводить до помилок і не створює дублікатів.
 
+### Структура репозиторію
+
+```text
+detailing-db/
+├── README.md                   # Головний документ: інструкції, команди, перевірки, відповіді на питання
+├── .gitignore                  # Ігнорування службових файлів IDE, Docker volumes та .NET
+├── docker-compose.yml          # Готовий стек SQL Server 2022 + MongoDB Community
+├── docs/
+│   ├── domain.md               # Опис домену, 3 контексти, сутності та межі агрегатів
+│   ├── duplication-policy.md   # Повна таблиця політики дублювання даних між сервісами
+│   ├── decisions.md            # Архітектурні рішення (ADR): PK, каскади, конкурентність
+│   └── erd/                    # ER-діаграми у форматах DBML та Mermaid Markdown
+│       ├── project1.dbml
+│       ├── project1.md
+│       ├── project2.dbml
+│       └── project2.md
+├── project1-bookings/          # Контекст Записів (SQL Server, ADO.NET / Dapper)
+│   ├── 00_create_db.sql        # Створення бази DetailingBookings
+│   ├── schema.sql              # Таблиці, PK, FK, CHECK, індекси, ROWVERSION
+│   ├── procedures.sql          # 6 збережених процедур із транзакціями та TVP
+│   ├── seed.sql                # Реалістичні демо-дані для всіх статусів і таблиць
+│   └── tests.sql               # Автоматизовані тести перевірки процедур та обмежень
+├── project2-catalog/           # Контекст Каталогу послуг (SQL Server, EF Core)
+│   ├── 00_create_db.sql        # Створення бази DetailingCatalog
+│   ├── schema.sql              # Схема за конвенціями EF Core (1:1, 1:N, M:N, IsDeleted)
+│   ├── seed.sql                # Категорії, послуги, специфікації, фото, пакети
+│   └── tests.sql               # Тести цілісності, каскадів та м'якого видалення
+└── project3-reviews/           # Контекст Відгуків і звітів (MongoDB)
+    ├── init.js                 # Валідатори $jsonSchema та індекси для 4 колекцій
+    ├── seed.js                 # Ідемпотентне наповнення (upsert) зрілими даними
+    ├── queries.js              # 5 аналітичних та пошукових запитів (агрегації, $lookup)
+    └── samples/                # JSON-приклади документів (reviews, workReports, etc.)
+```
+
 ---
 
 ## 2. Вимоги до середовища
