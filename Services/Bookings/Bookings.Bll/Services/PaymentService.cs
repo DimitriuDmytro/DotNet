@@ -40,7 +40,7 @@ public class PaymentService : IPaymentService
         return _mapper.Map<IReadOnlyList<PaymentDto>>(payments);
     }
 
-    public async Task RegisterPaymentAsync(long appointmentId, RegisterPaymentDto dto, CancellationToken cancellationToken = default)
+    public async Task<PaymentDto> RegisterPaymentAsync(long appointmentId, RegisterPaymentDto dto, CancellationToken cancellationToken = default)
     {
         if (dto.Amount <= 0)
         {
@@ -75,10 +75,12 @@ public class PaymentService : IPaymentService
                     $"Сума платежу ({dto.Amount:F2}) перевищує залишок до сплати ({appointment.TotalAmount - alreadyPaid:F2}).");
             }
 
-            await _unitOfWork.Payments.RegisterPaymentViaProcedureAsync(
+            var payment = await _unitOfWork.Payments.RegisterPaymentViaProcedureAsync(
                 appointmentId, dto.Amount, dto.Method.Trim(), cancellationToken);
 
             await _unitOfWork.CommitAsync(cancellationToken);
+
+            return _mapper.Map<PaymentDto>(payment);
         }
         catch
         {

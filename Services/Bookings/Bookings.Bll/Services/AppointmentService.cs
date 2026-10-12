@@ -6,6 +6,7 @@ using Bookings.Bll.Interfaces;
 using Bookings.Dal.Interfaces;
 using Bookings.Domain.Constants;
 using Bookings.Domain.Exceptions;
+using Bookings.Domain.Models;
 
 /// <summary>
 /// Сервіс бізнес-логіки для управління записами на детейлінг (Appointment Aggregate).
@@ -65,26 +66,48 @@ public class AppointmentService : IAppointmentService
                 throw new NotFoundException($"Клієнта з ID #{dto.ClientId} не знайдено.");
             }
 
-            // 2. Перевірка наявності всіх замовлених послуг у локальній репліці Services та валідація знижок
-            foreach (var item in dto.Items)
+            // 2. Завантаження замовлених послуг із локальної таблиці Services одним батч-запитом та формування історичного знімка
+            var serviceIds = dto.Items.Select(i => i.ServiceId).Distinct().ToList();
+            var catalogServices = await _unitOfWork.Services.GetByIdsAsync(serviceIds, cancellationToken);
+            var servicesById = catalogServices.ToDictionary(s => s.Id);
+
+            var snapshotItems = new List<AppointmentItem>(dto.Items.Count);
+
+            foreach (var itemDto in dto.Items)
             {
-                var catalogService = await _unitOfWork.CatalogServices.GetByServiceIdAsync(item.ServiceId, cancellationToken);
-                if (catalogService == null)
+                if (!servicesById.TryGetValue(itemDto.ServiceId, out var service))
                 {
-                    throw new ValidationException(nameof(dto.Items), $"Послугу з ID #{item.ServiceId} не знайдено в локальному довіднику.");
+                    throw new NotFoundException($"Послугу з ID #{itemDto.ServiceId} не знайдено в локальному довіднику Services.");
                 }
 
-                if (item.Discount > catalogService.Price * item.Quantity)
+                var lineGross = service.Price * itemDto.Quantity;
+                if (itemDto.Discount > lineGross)
                 {
                     throw new ValidationException(nameof(dto.Items),
-                        $"Сума знижки ({item.Discount}) перевищує вартість послуги #{item.ServiceId} ({catalogService.Price * item.Quantity}).");
+                        $"Сума знижки ({itemDto.Discount}) перевищує вартість послуги #{itemDto.ServiceId} ({lineGross}).");
                 }
+
+                var appointmentItem = new AppointmentItem
+                {
+                    ServiceId = service.Id,
+                    ServiceName = service.Name,  // знімок на момент запису, не оновлюється (політика дублювання)
+                    UnitPrice = service.Price,   // знімок на момент запису, не оновлюється (політика дублювання)
+                    Quantity = itemDto.Quantity,
+                    Discount = itemDto.Discount
+                };
+
+                snapshotItems.Add(appointmentItem);
             }
 
-            // 3. Створення запису, деталей авто, позицій (TVP) та початкового статусу через збережену процедуру
-            var tvpItems = dto.Items.Select(i => (i.ServiceId, i.Quantity, i.Discount)).ToList();
+            // 3. Розрахунок загальної вартості замовлення на основі історичних знімків цін
+            var totalAmount = snapshotItems.Sum(i => (i.UnitPrice * i.Quantity) - i.Discount);
+            if (totalAmount < 0)
+            {
+                throw new ValidationException(nameof(dto.Items), "Підсумкова сума замовлення (TotalAmount) не може бути від'ємною.");
+            }
 
-            var (appointmentId, _, _) = await _unitOfWork.Appointments.CreateViaProcedureAsync(
+            // 4. Створення запису, деталей авто, позицій (TVP зі знімками ServiceName/UnitPrice) та початкового статусу Booked
+            var createResult = await _unitOfWork.Appointments.CreateViaProcedureAsync(
                 dto.ClientId,
                 dto.ScheduledAt,
                 dto.CarBrand.Trim(),
@@ -92,13 +115,14 @@ public class AppointmentService : IAppointmentService
                 dto.PlateNumber.Trim(),
                 dto.Comment?.Trim(),
                 dto.CreatedBy ?? "system",
-                tvpItems,
+                totalAmount,
+                snapshotItems,
                 cancellationToken);
 
             await _unitOfWork.CommitAsync(cancellationToken);
 
             // Повертаємо повний агрегат створеного запису
-            return await GetByIdAsync(appointmentId, cancellationToken);
+            return await GetByIdAsync(createResult.AppointmentId, cancellationToken);
         }
         catch
         {
