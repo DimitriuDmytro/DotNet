@@ -1,0 +1,22 @@
+[
+  {
+    "_id": { "$oid": "670900000000000000000101" },
+    "targetType": "service",
+    "targetId": 7,
+    "targetName": "Керамічне покриття кузова 9H",
+    "title": "Догляд за авто після нанесення кераміки Gyeon Q2 Mohs EVO: досвід та поради",
+    "tags": ["кераміка", "9H", "гідрофоб", "зимовий-догляд"],
+    "isPinned": true,
+    "createdAt": { "$date": "2026-09-25T10:00:00Z" }
+  },
+  {
+    "_id": { "$oid": "670900000000000000000102" },
+    "targetType": "package",
+    "targetId": 3,
+    "targetName": "Ceramic Pro",
+    "title": "Обговорення пакета Ceramic Pro: чи варто брати комплекс перед зимою?",
+    "tags": ["пакет", "ceramic-pro", "комплексний-захист"],
+    "isPinned": false,
+    "createdAt": { "$date": "2026-09-29T14:30:00Z" }
+  }
+]

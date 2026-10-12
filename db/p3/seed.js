@@ -9,7 +9,7 @@
          - 9 відгуків клієнтів з гнучкою схемою (reviews)
          - 5 технологічних звітів майстрів для різних видів послуг (workReports)
          Усі serviceId, serviceName та appointmentId узгоджені з Проєктами №1 і №2.
-   Запуск: mongosh "mongodb://localhost:27017/detailing_reviews" project3-reviews/seed.js
+   Запуск: mongosh "mongodb://localhost:27017/detailing_reviews" db/p3/seed.js
    ========================================================================= */
 
 const targetDb = db.getSiblingDB("detailing_reviews");

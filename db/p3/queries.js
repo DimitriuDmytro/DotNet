@@ -9,7 +9,7 @@
          3. Пагінація відгуків (sort + skip + limit).
          4. Aggregation pipeline: середня оцінка та кількість відгуків по кожній послузі ($group).
          5. Aggregation pipeline: об'єднання тем обговорень із потоком повідомлень ($lookup).
-   Запуск: mongosh "mongodb://localhost:27017/detailing_reviews" project3-reviews/queries.js
+   Запуск: mongosh "mongodb://localhost:27017/detailing_reviews" db/p3/queries.js
    ========================================================================= */
 
 const targetDb = db.getSiblingDB("detailing_reviews");

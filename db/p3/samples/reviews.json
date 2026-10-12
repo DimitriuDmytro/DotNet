@@ -1,0 +1,102 @@
+[
+  {
+    "_id": { "$oid": "670900000000000000000301" },
+    "serviceId": 7,
+    "serviceName": "Керамічне покриття кузова 9H",
+    "appointmentId": 1,
+    "discussionId": { "$oid": "670900000000000000000101" },
+    "rating": 5,
+    "title": "Неймовірний дзеркальний блиск на чорному BMW X5!",
+    "text": "Робив двофазну мийку та двошарову кераміку 9H. Колір Black Sapphire став значно глибшим, вода просто злітає з капота на швидкості 50 км/год.",
+    "verifiedVisit": true,
+    "author": {
+      "clientId": 1,
+      "fullName": "Олександр Коваленко",
+      "carInfo": "BMW X5 G05"
+    },
+    "photosBefore": [
+      "https://cdn.detailing.ua/reviews/app1-bmw-before-1.jpg",
+      "https://cdn.detailing.ua/reviews/app1-bmw-before-2.jpg"
+    ],
+    "photosAfter": [
+      "https://cdn.detailing.ua/reviews/app1-bmw-after-1.jpg",
+      "https://cdn.detailing.ua/reviews/app1-bmw-after-2.jpg"
+    ],
+    "videoUrl": "https://cdn.detailing.ua/reviews/app1-bmw-hydrophobic.mp4",
+    "pros": [
+      "Ідеальна підготовка кузова без жодної голограми",
+      "Фотозвіт кожного етапу в месенджер",
+      "Гарантійний сертифікат на 24 місяці"
+    ],
+    "cons": [
+      "Потрібно залишати авто на дві доби"
+    ],
+    "comments": [
+      {
+        "authorName": "Ірина (Адміністратор)",
+        "role": "admin",
+        "text": "Олександре, щиро дякуємо за довіру! Чекаємо на контрольний огляд через 2 тижні.",
+        "createdAt": { "$date": "2026-10-03T11:00:00Z" }
+      },
+      {
+        "authorName": "Андрій (Старший майстер)",
+        "role": "master",
+        "text": "Було приємно працювати з вашим авто, чорний колір після Mohs EVO виглядає еталонно!",
+        "createdAt": { "$date": "2026-10-03T12:15:00Z" }
+      }
+    ],
+    "createdAt": { "$date": "2026-10-03T09:30:00Z" }
+  },
+  {
+    "_id": { "$oid": "670900000000000000000302" },
+    "serviceId": 1,
+    "serviceName": "Двофазна детейлінг-мийка",
+    "appointmentId": 1,
+    "rating": 5,
+    "title": "Швидко, акуратно, жодних розводів на склі",
+    "text": "Регулярно заїжджаю на двофазну мийку. Продувають усі щілини, дзеркала та лючок бензобака турбосушкою — взимку нічого не примерзає.",
+    "verifiedVisit": true,
+    "author": {
+      "clientId": 1,
+      "fullName": "Олександр Коваленко",
+      "carInfo": "BMW X5 G05"
+    },
+    "comments": [],
+    "createdAt": { "$date": "2026-10-03T09:45:00Z" }
+  },
+  {
+    "_id": { "$oid": "670900000000000000000303" },
+    "serviceId": 9,
+    "serviceName": "Повна хімчистка салону з розбором",
+    "appointmentId": 2,
+    "rating": 5,
+    "title": "Світла шкіра Audi Q7 знову як із салону!",
+    "text": "На задньому дивані була застаріла пляма від кави та сліди від дитячого автокрісла. Після хімчистки з розбором салон став абсолютно чистим і матовим.",
+    "verifiedVisit": true,
+    "author": {
+      "clientId": 2,
+      "fullName": "Марина Шевченко",
+      "carInfo": "Audi Q7"
+    },
+    "photosBefore": [
+      "https://cdn.detailing.ua/reviews/app2-audi-seat-before.jpg"
+    ],
+    "photosAfter": [
+      "https://cdn.detailing.ua/reviews/app2-audi-seat-after.jpg",
+      "https://cdn.detailing.ua/reviews/app2-audi-cockpit-after.jpg"
+    ],
+    "pros": [
+      "Повністю вивели плями з перфорованої бежевої шкіри",
+      "Приємний нейтральний аромат без різкої хімії"
+    ],
+    "comments": [
+      {
+        "authorName": "Тарас (Майстер інтер'єру)",
+        "role": "master",
+        "text": "Пані Марино, рекомендуємо раз на пів року оновлювати кондиціонер шкіри Koch Chemie Leather Star.",
+        "createdAt": { "$date": "2026-10-05T10:20:00Z" }
+      }
+    ],
+    "createdAt": { "$date": "2026-10-05T08:50:00Z" }
+  }
+]

@@ -81,6 +81,6 @@
    - Таблиці названо у множині (`ServiceCategories`, `Services`, `ServiceSpecs`, `ServiceImages`, `Packages`, `PackageServices`), що відповідає стандартним конвенціям `DbSet<T>` в EF Core, тоді як доменні сутності в C# матимуть назви в однині (`ServiceCategory`, `Service`, `ServiceSpec`, `ServiceImage`, `Package`, `PackageService`).
    - Усі `DATETIME2` колонки використовують UTC за замовчуванням (`SYSUTCDATETIME()`), грошові поля мають тип `DECIMAL(18,2)`, текстові поля — `NVARCHAR` для повної підтримки української мови (Unicode).
 4. **Узгодження ідентифікаторів між трьома базами даних:**
-   - Усі seed-скрипти (`project1-bookings/seed.sql`, `project2-catalog/seed.sql`, `project3-reviews/seed.js`) використовують наскрізно узгоджені `ServiceId` (`1..12`, де `1..10` присутні в локальній копії `DetailingBookings`) та `AppointmentId` (`1..8`), щоб під час демонстрації та перевірки дані логічно відповідали одне одному без жодного фізичного міжбазового зв'язку.
+   - Усі seed-скрипти (`db/p1/seed.sql`, `db/p2/seed.sql`, `db/p3/seed.js`) використовують наскрізно узгоджені `ServiceId` (`1..12`, де `1..10` присутні в локальній копії `DetailingBookings`) та `AppointmentId` (`1..8`), щоб під час демонстрації та перевірки дані логічно відповідали одне одному без жодного фізичного міжбазового зв'язку.
 5. **Безпека в `docker-compose.yml`:**
    - Згідно з правилом «Жодних секретів у репозиторії», пароль адміністратора SQL Server не захардкоджений у `docker-compose.yml`, а зчитується зі змінної оточення `${MSSQL_SA_PASSWORD}`.

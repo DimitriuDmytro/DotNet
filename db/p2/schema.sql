@@ -9,6 +9,17 @@
          конвенціями DbSet<TEntity> у EF Core Code First.
    ========================================================================= */
 
+USE [master];
+GO
+
+IF DB_ID(N'DetailingCatalog') IS NULL
+BEGIN
+    PRINT N'Створення бази даних [DetailingCatalog]...';
+    CREATE DATABASE [DetailingCatalog];
+    PRINT N'Базу даних [DetailingCatalog] успішно створено.';
+END
+GO
+
 USE [DetailingCatalog];
 GO
 

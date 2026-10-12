@@ -7,6 +7,17 @@
          та індексів для управління записами детейлінг-студії.
    ========================================================================= */
 
+USE [master];
+GO
+
+IF DB_ID(N'DetailingBookings') IS NULL
+BEGIN
+    PRINT N'Створення бази даних [DetailingBookings]...';
+    CREATE DATABASE [DetailingBookings];
+    PRINT N'Базу даних [DetailingBookings] успішно створено.';
+END
+GO
+
 USE [DetailingBookings];
 GO
 

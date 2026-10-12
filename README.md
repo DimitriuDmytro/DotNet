@@ -19,40 +19,46 @@
 ### Жорсткі архітектурні принципи проєкту
 - **Жодних міжбазових `FOREIGN KEY`**, спільних таблиць або міжбазових `JOIN`. Посилання на сутність іншого контексту зберігається як звичайне числове поле (`ServiceId`, `AppointmentId`) без фізичного обмеження.
 - **Кожна сутність належить рівно одному контексту** (єдине джерело істини — *System of Record*).
-- **Повна ідемпотентність усіх скриптів**: повторне виконання будь-якого скрипту (`00_create_db.sql`, `schema.sql`, `procedures.sql`, `seed.sql`, `init.js`, `seed.js`) не призводить до помилок і не створює дублікатів.
+- **Повна ідемпотентність усіх скриптів**: повторне виконання будь-якого скрипту (`00_create_db.sql`, `schema.sql`, `procedures.sql`, `seed.sql`, `collections.js`, `seed.js`) не призводить до помилок і не створює дублікатів.
 
-### Структура репозиторію
+### Структура репозиторію (відповідно до вимог перевірки Лаб. 01)
 
 ```text
-detailing-db/
-├── README.md                   # Головний документ: інструкції, команди, перевірки, відповіді на питання
-├── .gitignore                  # Ігнорування службових файлів IDE, Docker volumes та .NET
-├── docker-compose.yml          # Готовий стек SQL Server 2022 + MongoDB Community
-├── docs/
-│   ├── domain.md               # Опис домену, 3 контексти, сутності та межі агрегатів
-│   ├── duplication-policy.md   # Повна таблиця політики дублювання даних між сервісами
-│   ├── decisions.md            # Архітектурні рішення (ADR): PK, каскади, конкурентність
-│   └── erd/                    # ER-діаграми у форматах DBML та Mermaid Markdown
-│       ├── project1.dbml
-│       ├── project1.md
-│       ├── project2.dbml
-│       └── project2.md
-├── project1-bookings/          # Контекст Записів (SQL Server, ADO.NET / Dapper)
-│   ├── 00_create_db.sql        # Створення бази DetailingBookings
-│   ├── schema.sql              # Таблиці, PK, FK, CHECK, індекси, ROWVERSION
-│   ├── procedures.sql          # 6 збережених процедур із транзакціями та TVP
-│   ├── seed.sql                # Реалістичні демо-дані для всіх статусів і таблиць
-│   └── tests.sql               # Автоматизовані тести перевірки процедур та обмежень
-├── project2-catalog/           # Контекст Каталогу послуг (SQL Server, EF Core)
-│   ├── 00_create_db.sql        # Створення бази DetailingCatalog
-│   ├── schema.sql              # Схема за конвенціями EF Core (1:1, 1:N, M:N, IsDeleted)
-│   ├── seed.sql                # Категорії, послуги, специфікації, фото, пакети
-│   └── tests.sql               # Тести цілісності, каскадів та м'якого видалення
-└── project3-reviews/           # Контекст Відгуків і звітів (MongoDB)
-    ├── init.js                 # Валідатори $jsonSchema та індекси для 4 колекцій
-    ├── seed.js                 # Ідемпотентне наповнення (upsert) зрілими даними
-    ├── queries.js              # 5 аналітичних та пошукових запитів (агрегації, $lookup)
-    └── samples/                # JSON-приклади документів (reviews, workReports, etc.)
+<корінь репозиторію>/
+├── README.md                   ★ опис домену, запуск, розгортання БД, таблиця дублювання
+├── .gitignore                  ★ ігнорування службових файлів
+├── docker-compose.yml          ★ середовище SQL Server 2022 + MongoDB
+├── docs/                       ★ ERD-діаграми, опис контекстів, приклади документів
+│   ├── domain.md               ★ опис домену (2-3 речення), 3 контексти, сутності, агрегати
+│   ├── duplication-policy.md   ★ детальна таблиця політики дублювання даних між сервісами
+│   ├── decisions.md            ★ архітектурні рішення (ADR): PK, каскади, конкурентність
+│   ├── erd/                    ★ ERD-діаграми (DBML та Mermaid Markdown)
+│   │   ├── project1.dbml
+│   │   ├── project1.md
+│   │   ├── project2.dbml
+│   │   └── project2.md
+│   └── samples/                ★ приклади документів MongoDB (JSON)
+│       ├── reviews.json
+│       ├── workReports.json
+│       ├── discussions.json
+│       └── messages.json
+└── db/                         ★ SQL- і MongoDB-скрипти
+    ├── p1/                     ★ Проєкт №1: schema.sql · procedures.sql · seed.sql
+    │   ├── 00_create_db.sql    ★ створення бази DetailingBookings (також вбудовано в schema.sql)
+    │   ├── schema.sql          ★ таблиці, зв'язки 1:1, 1:N, M:N, PK, FK, CHECK, індекси, ROWVERSION
+    │   ├── procedures.sql      ★ 6 збережених процедур (транзакції, TVP, обробка помилок)
+    │   ├── seed.sql            ★ ідемпотентні демо-дані для всіх статусів
+    │   └── tests.sql           ★ тести бізнес-сценаріїв та обмежень
+    ├── p2/                     ★ Проєкт №2: schema.sql · seed.sql
+    │   ├── 00_create_db.sql    ★ створення бази DetailingCatalog (також вбудовано в schema.sql)
+    │   ├── schema.sql          ★ схема за конвенціями EF Core (1:1, 1:N, M:N, IsDeleted)
+    │   ├── seed.sql            ★ категорії, послуги, специфікації, фото, пакети
+    │   └── tests.sql           ★ тести цілісності, каскадів та м'якого видалення
+    └── p3/                     ★ Проєкт №3 (MongoDB): collections.js · seed.js
+        ├── collections.js      ★ валідатори $jsonSchema та індекси для 4 колекцій
+        ├── seed.js             ★ ідемпотентне наповнення (upsert) зрілими даними
+        ├── queries.js          ★ 5 аналітичних та пошукових запитів ($group, $lookup)
+        └── samples/            ★ JSON-приклади документів (reviews, workReports, etc.)
 ```
 
 ---
@@ -87,64 +93,61 @@ MSSQL_SA_PASSWORD="ChangeMe_StrongPass123!" docker compose up -d
 
 ## 3. Покрокове розгортання з нуля
 
-### 3.1. Розгортання Проєкту №1: `DetailingBookings` (SQL Server)
+### 3.1. Розгортання Проєкту №1: `DetailingBookings` (SQL Server, папка `db/p1/`)
 
-Виконайте скрипти строго у вказаному порядку:
-`00_create_db.sql` $\rightarrow$ `schema.sql` $\rightarrow$ `procedures.sql` $\rightarrow$ `seed.sql` $\rightarrow$ `tests.sql`.
+Порядок запуску:
+`schema.sql` $\rightarrow$ `procedures.sql` $\rightarrow$ `seed.sql` $\rightarrow$ `tests.sql`.
+*(Примітка: `schema.sql` містить вбудовану ідемпотентну перевірку створення бази, тому може запускатися самостійно, або після `00_create_db.sql`).*
 
 #### Команди для локального SQL Server LocalDB / Express (Windows Authentication):
 ```powershell
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -i project1-bookings/00_create_db.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/schema.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/procedures.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/seed.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i project1-bookings/tests.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -i db/p1/schema.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i db/p1/procedures.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i db/p1/seed.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingBookings -i db/p1/tests.sql
 ```
 *(Якщо використовується повноцінний екземпляр SQL Server за замовчуванням, замініть `"(localdb)\MSSQLLocalDB"` на `localhost`).*
 
 #### Команди для SQL Server у Docker (SQL Authentication):
 ```powershell
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -i project1-bookings/00_create_db.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i project1-bookings/schema.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i project1-bookings/procedures.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i project1-bookings/seed.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i project1-bookings/tests.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -i db/p1/schema.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i db/p1/procedures.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i db/p1/seed.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingBookings -i db/p1/tests.sql
 ```
 
 ---
 
-### 3.2. Розгортання Проєкту №2: `DetailingCatalog` (SQL Server)
+### 3.2. Розгортання Проєкту №2: `DetailingCatalog` (SQL Server, папка `db/p2/`)
 
 Порядок запуску:
-`00_create_db.sql` $\rightarrow$ `schema.sql` $\rightarrow$ `seed.sql` $\rightarrow$ `tests.sql`.
+`schema.sql` $\rightarrow$ `seed.sql` $\rightarrow$ `tests.sql`.
 
 #### Команди для локального SQL Server LocalDB / Express (Windows Authentication):
 ```powershell
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -i project2-catalog/00_create_db.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i project2-catalog/schema.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i project2-catalog/seed.sql
-sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i project2-catalog/tests.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -i db/p2/schema.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i db/p2/seed.sql
+sqlcmd -S "(localdb)\MSSQLLocalDB" -E -f 65001 -d DetailingCatalog -i db/p2/tests.sql
 ```
 
 #### Команди для SQL Server у Docker (SQL Authentication):
 ```powershell
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -i project2-catalog/00_create_db.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingCatalog -i project2-catalog/schema.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingCatalog -i project2-catalog/seed.sql
-sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingCatalog -i project2-catalog/tests.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -i db/p2/schema.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingCatalog -i db/p2/seed.sql
+sqlcmd -S localhost,1433 -U sa -P "$env:MSSQL_SA_PASSWORD" -C -f 65001 -d DetailingCatalog -i db/p2/tests.sql
 ```
 
 ---
 
-### 3.3. Розгортання Проєкту №3: `detailing_reviews` (MongoDB)
+### 3.3. Розгортання Проєкту №3: `detailing_reviews` (MongoDB, папка `db/p3/`)
 
 Порядок запуску:
-`init.js` $\rightarrow$ `seed.js` $\rightarrow$ `queries.js`.
+`collections.js` $\rightarrow$ `seed.js` $\rightarrow$ `queries.js`.
 
 ```powershell
-mongosh "mongodb://localhost:27017/detailing_reviews" project3-reviews/init.js
-mongosh "mongodb://localhost:27017/detailing_reviews" project3-reviews/seed.js
-mongosh "mongodb://localhost:27017/detailing_reviews" project3-reviews/queries.js
+mongosh "mongodb://localhost:27017/detailing_reviews" db/p3/collections.js
+mongosh "mongodb://localhost:27017/detailing_reviews" db/p3/seed.js
+mongosh "mongodb://localhost:27017/detailing_reviews" db/p3/queries.js
 ```
 
 ---
