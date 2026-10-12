@@ -222,14 +222,31 @@ GO
 
 /* -------------------------------------------------------------------------
    8. Табличний тип (TVP) для передачі позицій замовлення у usp_CreateAppointment
+   Включає ServiceName та UnitPrice (знімок, сформований у BLL із локальної репліки Services).
    ------------------------------------------------------------------------- */
+IF TYPE_ID(N'dbo.AppointmentItemTableType') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1
+       FROM sys.table_types tt
+       INNER JOIN sys.columns c ON c.object_id = tt.type_table_object_id
+       WHERE tt.name = N'AppointmentItemTableType' AND c.name = N'ServiceName'
+   )
+BEGIN
+    IF OBJECT_ID(N'dbo.usp_CreateAppointment', N'P') IS NOT NULL
+        DROP PROCEDURE dbo.usp_CreateAppointment;
+    DROP TYPE dbo.AppointmentItemTableType;
+END
+GO
+
 IF TYPE_ID(N'dbo.AppointmentItemTableType') IS NULL
 BEGIN
     CREATE TYPE dbo.AppointmentItemTableType AS TABLE
     (
-        ServiceId BIGINT        NOT NULL,
-        Quantity  INT           NOT NULL DEFAULT (1) CHECK (Quantity > 0),
-        Discount  DECIMAL(18,2) NOT NULL DEFAULT (0.00) CHECK (Discount >= 0),
+        ServiceId   BIGINT         NOT NULL,
+        ServiceName NVARCHAR(200)  NULL, -- Знімок назви послуги з BLL (якщо NULL, береться з dbo.Services)
+        UnitPrice   DECIMAL(18,2)  NULL CHECK (UnitPrice IS NULL OR UnitPrice > 0), -- Знімок ціни з BLL
+        Quantity    INT            NOT NULL DEFAULT (1) CHECK (Quantity > 0),
+        Discount    DECIMAL(18,2)  NOT NULL DEFAULT (0.00) CHECK (Discount >= 0),
         PRIMARY KEY (ServiceId)
     );
     PRINT N'Табличний тип [dbo.AppointmentItemTableType] створено.';

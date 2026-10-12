@@ -1,0 +1,112 @@
+# Базовий URL сервісу Bookings.Api (візьміть актуальний порт із панелі Aspire Dashboard або консолі запуску)
+@baseUrl = http://localhost:5188
+
+### 1. Створення клієнта (POST /api/clients) -> очікується 201 Created + заголовок Location
+POST {{baseUrl}}/api/clients
+Content-Type: application/json
+
+{
+  "email": "dmytro.detailing@example.com",
+  "fullName": "Дмитро Ковальчук",
+  "phone": "+380671112233",
+  "createdBy": "admin"
+}
+
+### 2. Створення запису на детейлінг із переліком послуг через TVP (POST /api/appointments) -> очікується 201 Created
+# Примітка: у BLL формується історичний знімок ServiceName і UnitPrice з таблиці Services та обчислюється TotalAmount
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+
+{
+  "clientId": 1,
+  "scheduledAt": "2026-10-25T10:00:00Z",
+  "carBrand": "BMW",
+  "carModel": "X5",
+  "plateNumber": "AA7777XX",
+  "comment": "Комплексна детейлінг-мийка та нанесення твердого воску",
+  "createdBy": "admin",
+  "items": [
+    {
+      "serviceId": 1,
+      "quantity": 1,
+      "discount": 0.00
+    },
+    {
+      "serviceId": 3,
+      "quantity": 1,
+      "discount": 200.00
+    }
+  ]
+}
+
+### 3. Отримання запису за Id разом із деталями авто (1:1) та позиціями (1:N) (GET /api/appointments/{id}) -> очікується 200 OK
+GET {{baseUrl}}/api/appointments/1
+Accept: application/json
+
+### 4. Допустима зміна статусу запису (PATCH /api/appointments/{id}/status: Booked -> CarReceived) -> очікується 204 No Content
+PATCH {{baseUrl}}/api/appointments/2/status
+Content-Type: application/json
+
+{
+  "newStatus": "CarReceived",
+  "changedBy": "master_oleg"
+}
+
+### 5. НЕДОПУСТИМА зміна статусу (PATCH /api/appointments/{id}/status: Booked -> Delivered) -> очікується 409 Conflict (ProblemDetails)
+PATCH {{baseUrl}}/api/appointments/1/status
+Content-Type: application/json
+
+{
+  "newStatus": "Delivered",
+  "changedBy": "admin"
+}
+
+### 6. Запит запису за неіснуючим Id (GET /api/appointments/999999) -> очікується 404 Not Found (ProblemDetails)
+GET {{baseUrl}}/api/appointments/999999
+Accept: application/json
+
+### 7. Невалідне тіло запиту при створенні запису (POST /api/appointments) -> очікується 400 Bad Request (ValidationProblemDetails)
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+
+{
+  "clientId": 0,
+  "carBrand": "",
+  "carModel": "",
+  "plateNumber": "A",
+  "items": []
+}
+
+### 8. Реєстрація оплати за записом (POST /api/appointments/{appointmentId}/payments) -> очікується 201 Created (PaymentDto)
+POST {{baseUrl}}/api/appointments/1/payments
+Content-Type: application/json
+
+{
+  "amount": 500.00,
+  "method": "Card"
+}
+
+### 9. Спроба переплати понад залишок до сплати (POST /api/appointments/{appointmentId}/payments) -> очікується 409 Conflict (ProblemDetails)
+POST {{baseUrl}}/api/appointments/1/payments
+Content-Type: application/json
+
+{
+  "amount": 999999.00,
+  "method": "Cash"
+}
+
+### 10. Спроба видачі авто при неповній оплаті або статусі не Ready (POST /api/appointments/{id}/deliver) -> очікується 409 Conflict (ProblemDetails)
+POST {{baseUrl}}/api/appointments/1/deliver?changedBy=admin
+Accept: application/json
+
+### 11. Успішна видача авто клієнту при статусі Ready та повній оплаті (POST /api/appointments/{id}/deliver) -> очікується 204 No Content
+POST {{baseUrl}}/api/appointments/6/deliver?changedBy=admin
+Accept: application/json
+
+### 12. Пагінація записів клієнта з опціональним фільтром за статусом (GET /api/appointments/client/{clientId}) -> очікується 200 OK
+GET {{baseUrl}}/api/appointments/client/1?pageNumber=1&pageSize=10
+Accept: application/json
+
+### 13. Отримання локальної Read-Model копії каталогу послуг (GET /api/catalog-services) -> очікується 200 OK
+GET {{baseUrl}}/api/catalog-services
+Accept: application/json
