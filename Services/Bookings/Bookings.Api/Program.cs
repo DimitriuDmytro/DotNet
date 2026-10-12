@@ -38,8 +38,7 @@ builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 builder.Services.AddAutoMapper(cfg =>
 {
     cfg.LicenseKey = builder.Configuration["AutoMapper:LicenseKey"];
-    cfg.AddProfile<BookingProfile>();
-});
+}, typeof(BookingProfile).Assembly);
 
 // 5. Реєстрація DAL (Unit of Work зі спільним з'єднанням на Scoped-запит)
 builder.Services.AddScoped<IUnitOfWork>(sp =>
