@@ -33,7 +33,7 @@ public class CatalogServiceRepository : BaseDapperRepository<CatalogService>, IC
                 entity.Name,
                 entity.Price,
                 entity.DurationMin
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             await Connection.ExecuteAsync(command);
             return entity.Id;
@@ -58,16 +58,38 @@ public class CatalogServiceRepository : BaseDapperRepository<CatalogService>, IC
                 entity.Name,
                 entity.Price,
                 entity.DurationMin
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             var rows = await Connection.ExecuteAsync(command);
             return rows > 0;
         });
     }
 
-    public async Task<CatalogService?> GetByServiceIdAsync(long serviceId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CatalogService>> GetByIdsAsync(IEnumerable<long> serviceIds, CancellationToken cancellationToken = default)
     {
-        return await GetByIdAsync(serviceId, cancellationToken);
+        return await ExecuteAsync<IReadOnlyList<CatalogService>>(async () =>
+        {
+            var idList = serviceIds?.Distinct().ToArray() ?? Array.Empty<long>();
+            if (idList.Length == 0)
+            {
+                return Array.Empty<CatalogService>();
+            }
+
+            const string sql = @"
+                SELECT Id, Name, Price, DurationMin, SyncedAt
+                FROM dbo.Services
+                WHERE Id IN @Ids;";
+
+            var command = new CommandDefinition(
+                sql,
+                new { Ids = idList },
+                Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
+
+            var results = await Connection.QueryAsync<CatalogService>(command);
+            return results.AsList();
+        });
     }
 
     public async Task UpsertAsync(CatalogService service, CancellationToken cancellationToken = default)
@@ -93,7 +115,7 @@ public class CatalogServiceRepository : BaseDapperRepository<CatalogService>, IC
                 service.Name,
                 service.Price,
                 service.DurationMin
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             await Connection.ExecuteAsync(command);
         });

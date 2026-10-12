@@ -105,7 +105,12 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                     FROM dbo.AppointmentItems
                     WHERE AppointmentId = @Id;";
 
-                var itemsCommand = new CommandDefinition(sqlItems, new { Id = id }, Transaction, cancellationToken: cancellationToken);
+                var itemsCommand = new CommandDefinition(
+                    sqlItems,
+                    new { Id = id },
+                    Transaction,
+                    commandTimeout: DefaultCommandTimeoutSeconds,
+                    cancellationToken: cancellationToken);
                 var items = (await Connection.QueryAsync<AppointmentItem>(itemsCommand)).AsList();
                 appointment.Items = items;
             }
@@ -133,6 +138,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                 "dbo.usp_GetClientAppointments",
                 parameters,
                 Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken);
 
@@ -141,7 +147,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
         });
     }
 
-    public async Task<(long AppointmentId, decimal TotalAmount, string Status)> CreateViaProcedureAsync(
+    public async Task<CreateAppointmentResult> CreateViaProcedureAsync(
         long clientId,
         DateTime scheduledAt,
         string carBrand,
@@ -149,19 +155,28 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
         string plateNumber,
         string? comment,
         string createdBy,
-        IEnumerable<(long ServiceId, int Quantity, decimal Discount)> items,
+        decimal totalAmount,
+        IReadOnlyList<AppointmentItem> items,
         CancellationToken cancellationToken = default)
     {
         return await ExecuteAsync(async () =>
         {
+            // Табличний параметр (TVP) dbo.AppointmentItemTableType передає знімок ServiceName та UnitPrice із BLL
             var tvpTable = new DataTable();
             tvpTable.Columns.Add("ServiceId", typeof(long));
+            tvpTable.Columns.Add("ServiceName", typeof(string));
+            tvpTable.Columns.Add("UnitPrice", typeof(decimal));
             tvpTable.Columns.Add("Quantity", typeof(int));
             tvpTable.Columns.Add("Discount", typeof(decimal));
 
             foreach (var item in items)
             {
-                tvpTable.Rows.Add(item.ServiceId, item.Quantity, item.Discount);
+                tvpTable.Rows.Add(
+                    item.ServiceId,
+                    item.ServiceName,
+                    item.UnitPrice,
+                    item.Quantity,
+                    item.Discount);
             }
 
             var parameters = new DynamicParameters();
@@ -172,6 +187,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
             parameters.Add("@PlateNumber", plateNumber, DbType.String, size: 20);
             parameters.Add("@Comment", comment, DbType.String, size: 1000);
             parameters.Add("@CreatedBy", createdBy ?? "system", DbType.String, size: 100);
+            parameters.Add("@TotalAmount", totalAmount, DbType.Decimal, precision: 18, scale: 2);
             parameters.Add("@Items", tvpTable.AsTableValuedParameter("dbo.AppointmentItemTableType"));
             parameters.Add("@NewAppointmentId", dbType: DbType.Int64, direction: ParameterDirection.Output);
 
@@ -179,15 +195,16 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                 "dbo.usp_CreateAppointment",
                 parameters,
                 Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken);
 
             var row = await Connection.QueryFirstOrDefaultAsync<dynamic>(command);
             long id = row != null ? (long)row.AppointmentId : parameters.Get<long>("@NewAppointmentId");
-            decimal total = row != null ? (decimal)row.TotalAmount : 0m;
+            decimal total = row != null ? (decimal)row.TotalAmount : totalAmount;
             string stat = row != null ? (string)row.Status : "Booked";
 
-            return (id, total, stat);
+            return new CreateAppointmentResult(id, total, stat);
         });
     }
 
@@ -208,6 +225,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                 "dbo.usp_ChangeStatus",
                 parameters,
                 Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken);
 
@@ -230,6 +248,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                 "dbo.usp_DeliverCar",
                 parameters,
                 Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken);
 
@@ -252,6 +271,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                 "dbo.usp_CancelAppointment",
                 parameters,
                 Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken);
 
@@ -271,7 +291,12 @@ public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppoint
                 WHERE AppointmentId = @AppointmentId
                 ORDER BY ChangedAt ASC, Id ASC;";
 
-            var command = new CommandDefinition(sql, new { AppointmentId = appointmentId }, Transaction, cancellationToken: cancellationToken);
+            var command = new CommandDefinition(
+                sql,
+                new { AppointmentId = appointmentId },
+                Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
             var results = await Connection.QueryAsync<StatusHistoryEntry>(command);
             return results.AsList();
         });
