@@ -84,3 +84,56 @@
    - Усі seed-скрипти (`db/p1/seed.sql`, `db/p2/seed.sql`, `db/p3/seed.js`) використовують наскрізно узгоджені `ServiceId` (`1..12`, де `1..10` присутні в локальній копії `DetailingBookings`) та `AppointmentId` (`1..8`), щоб під час демонстрації та перевірки дані логічно відповідали одне одному без жодного фізичного міжбазового зв'язку.
 5. **Безпека в `docker-compose.yml`:**
    - Згідно з правилом «Жодних секретів у репозиторії», пароль адміністратора SQL Server не захардкоджений у `docker-compose.yml`, а зчитується зі змінної оточення `${MSSQL_SA_PASSWORD}`.
+
+---
+
+## ADR-06: Вибір платформи .NET 9 SDK та формату рішення `.slnx` (Лаб. 02)
+
+### Рішення
+- Усі проєкти рішення (`Bookings.Domain`, `Bookings.Dal`, `Bookings.Bll`, `Bookings.Api`, `Bookings.Tests`, `Platform.AppHost`) зібрані під цільову платформу **`net9.0`** (SDK `9.0.318`).
+- Використано сучасний XML-формат файлу рішення **`Platform.slnx`** у корені репозиторію.
+- Для оркестрації використано **.NET Aspire 9.1.0** (`Aspire.AppHost.Sdk/9.1.0`, `Aspire.Hosting.AppHost`, `Aspire.Hosting.SqlServer`).
+
+### Обґрунтування
+- Формат `.slnx` є лаконічним, людиночитаним XML без надлишкових GUID-ідентифікаторів конфігурацій, що мінімізує конфлікти злиття в Git.
+- Назви проєктів та шарів суворо відповідають тришаровій архітектурі: `Bookings.Api` $\rightarrow$ `Bookings.Bll` $\rightarrow$ `Bookings.Dal` (+ наскрізний `Bookings.Domain` без зовнішніх залежностей).
+
+---
+
+## ADR-07: Поєднання чистого ADO.NET та Dapper у шарі DAL
+
+### Рішення
+1. **`ClientRepository` (`IClientRepository`):** реалізований **виключно на чистому ADO.NET** (`SqlCommand`, `SqlParameter` з явним типом `SqlDbType` і розміром, ручне читання `SqlDataReader`). Інтерфейс `IClientRepository` навмисно не успадковує `IGenericRepository`, щоб продемонструвати низькорівневий контракт ADO.NET.
+2. **`BaseDapperRepository<T, TKey>` (`IGenericRepository<T, TKey>`):** реалізує типові CRUD-операції та м'яке видалення (`IsDeleted = 1`) за допомогою мікро-ORM **Dapper**.
+3. **`AppointmentRepository`, `PaymentRepository`, `CatalogServiceRepository`:** успадковують `BaseDapperRepository`, використовують Dapper Multi-Mapping (`splitOn: "AppointmentId"`) для зв'язку 1:1 (`Appointment` + `AppointmentDetails`), передають табличний параметр (`TVP dbo.AppointmentItemTableType`) через `DataTable.AsTableValuedParameter(...)` та викликають збережені процедури з Лаб. 01.
+
+### Обґрунтування
+- Такий підхід дозволяє порівняти трудомісткість і контроль чистого ADO.NET із продуктивністю Dapper у межах однієї бази даних і однієї транзакції.
+- Весь SQL-код та імена збережених процедур повністю інкапсульовані всередині `Bookings.Dal` — у `Bookings.Bll` та `Bookings.Api` немає жодного SQL-рядка чи посилання на `Microsoft.Data.SqlClient`.
+
+---
+
+## ADR-08: Координація транзакцій через Unit of Work (`IUnitOfWork`)
+
+### Рішення
+- Клас `UnitOfWork` створює та утримує єдиний екземпляр `SqlConnection` на час життя HTTP-запиту (`Scoped`) і передає всім репозиторіям делегат `Func<SqlTransaction?>` для доступу до поточної активної транзакції.
+- Коли бізнес-операція в BLL (наприклад, `AppointmentService.CreateAsync` або `PaymentService.RegisterPaymentAsync`) викликає `await _unitOfWork.BeginTransactionAsync()`, і ADO.NET-репозиторій (`Clients`), і Dapper-репозиторії (`CatalogServices`, `Appointments`, `Payments`) автоматично виконують свої запити в межах одного `SqlConnection` та однієї `SqlTransaction`.
+- У разі будь-якого винятку блок `catch` у BLL гарантовано викликає `await _unitOfWork.RollbackAsync()`.
+
+---
+
+## ADR-09: Трансляція помилок БД у доменні винятки та RFC 7807 ProblemDetails
+
+### Рішення
+1. **Рівень DAL (`RepositoryBase.TranslateSqlException`):** перехоплює `SqlException` і перетворює коди помилок SQL Server на доменні винятки з `Bookings.Domain.Exceptions`:
+   - `50001` $\rightarrow$ `NotFoundException`
+   - `50002`, `50003`, `50004` $\rightarrow$ `BusinessConflictException`
+   - `50005` $\rightarrow$ `ValidationException`
+   - `2601`, `2627` (порушення `UNIQUE`) $\rightarrow$ `BusinessConflictException`
+   - `547` (порушення `FOREIGN KEY` / `CHECK`) $\rightarrow$ `BusinessConflictException`
+2. **Рівень API (`DomainExceptionHandler : IExceptionHandler`):** перехоплює доменні винятки на рівні всього пайплайну ASP.NET Core і формує відповідь у форматі **RFC 7807 `ProblemDetails`** (`application/problem+json`):
+   - `ValidationException` $\rightarrow$ `400 Bad Request`
+   - `NotFoundException` $\rightarrow$ `404 Not Found`
+   - `BusinessConflictException` $\rightarrow$ `409 Conflict`
+   - Інші винятки $\rightarrow$ `500 Internal Server Error`
+3. Контролери не містять блоків `try/catch` і залишаються тонкими.

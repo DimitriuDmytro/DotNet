@@ -31,44 +31,32 @@
 - **Кожна сутність належить рівно одному контексту** (жодна сутність не дублюється між контекстами як власна таблиця чи колекція).
 - **Повна ідемпотентність усіх скриптів**: повторне виконання будь-якого скрипту (`00_create_db.sql`, `schema.sql`, `procedures.sql`, `seed.sql`, `collections.js`, `seed.js`) не призводить до помилок і не створює дублікатів.
 
-### Структура репозиторію (відповідно до вимог перевірки Лаб. 01)
+### Структура репозиторію (Лаб. 01 + Лаб. 02)
 
 ```text
 <корінь репозиторію>/
-├── README.md                   ★ опис домену, запуск, розгортання БД, таблиця дублювання
-├── .gitignore                  ★ ігнорування службових файлів
+├── README.md                   ★ опис домену, запуск, розгортання БД, таблиця дублювання, Лаб. 01–02
+├── .gitignore                  ★ ігнорування службових файлів та артефактів збірки (bin/, obj/, .vs/)
 ├── docker-compose.yml          ★ середовище SQL Server 2022 + MongoDB
-├── docs/                       ★ ERD-діаграми, опис контекстів, приклади документів
+├── Platform.slnx               ★ єдиний файл рішення (.NET 9 XML Solution)
+├── Platform.AppHost/           ★ оркестрація .NET Aspire (AppHost.cs, ресурс "BookingsDb")
+├── Services/                   ★ мікросервіси платформи
+│   └── Bookings/               ★ Проєкт №1: Тришарова архітектура (ADO.NET + Dapper)
+│       ├── Bookings.Api/       ★ презентаційний рівень (тонкі контролери, IExceptionHandler -> ProblemDetails, Serilog)
+│       ├── Bookings.Bll/       ★ бізнес-логіка (сервіси, DTO, AutoMapper BookingProfile, транзакції UoW)
+│       ├── Bookings.Dal/       ★ доступ до даних (ClientRepository на чистому ADO.NET, Dapper-репозиторії, TVP, UnitOfWork)
+│       ├── Bookings.Domain/    ★ доменні сутності, константи переходів статусів та доменні винятки
+│       └── Bookings.Tests/     ★ модульні та інтеграційні тести (xUnit, NSubstitute, WebApplicationFactory)
+├── docs/                       ★ ERD-діаграми, опис контекстів, ADR, приклади документів
 │   ├── domain.md               ★ опис домену (2-3 речення), 3 контексти, сутності, агрегати
 │   ├── duplication-policy.md   ★ детальна таблиця політики дублювання даних між сервісами
-│   ├── decisions.md            ★ архітектурні рішення (ADR): PK, каскади, конкурентність
+│   ├── decisions.md            ★ архітектурні рішення (ADR-01..ADR-09)
 │   ├── erd/                    ★ ERD-діаграми (DBML та Mermaid Markdown)
-│   │   ├── project1.dbml
-│   │   ├── project1.md
-│   │   ├── project2.dbml
-│   │   └── project2.md
 │   └── samples/                ★ приклади документів MongoDB (JSON)
-│       ├── reviews.json
-│       ├── workReports.json
-│       ├── discussions.json
-│       └── messages.json
-└── db/                         ★ SQL- і MongoDB-скрипти
-    ├── p1/                     ★ Проєкт №1: schema.sql · procedures.sql · seed.sql
-    │   ├── 00_create_db.sql    ★ створення бази DetailingBookings (також вбудовано в schema.sql)
-    │   ├── schema.sql          ★ таблиці, зв'язки 1:1, 1:N, M:N, PK, FK, CHECK, індекси, ROWVERSION
-    │   ├── procedures.sql      ★ 6 збережених процедур (транзакції, TVP, обробка помилок)
-    │   ├── seed.sql            ★ ідемпотентні демо-дані для всіх статусів
-    │   └── tests.sql           ★ тести бізнес-сценаріїв та обмежень
-    ├── p2/                     ★ Проєкт №2: schema.sql · seed.sql
-    │   ├── 00_create_db.sql    ★ створення бази DetailingCatalog (також вбудовано в schema.sql)
-    │   ├── schema.sql          ★ схема за конвенціями EF Core (1:1, 1:N, M:N, IsDeleted)
-    │   ├── seed.sql            ★ категорії, послуги, специфікації, фото, пакети
-    │   └── tests.sql           ★ тести цілісності, каскадів та м'якого видалення
-    └── p3/                     ★ Проєкт №3 (MongoDB): collections.js · seed.js
-        ├── collections.js      ★ валідатори $jsonSchema та індекси для 4 колекцій
-        ├── seed.js             ★ ідемпотентне наповнення (upsert) зрілими даними
-        ├── queries.js          ★ 5 аналітичних та пошукових запитів ($group, $lookup)
-        └── samples/            ★ JSON-приклади документів (reviews, workReports, etc.)
+└── db/                         ★ SQL- і MongoDB-скрипти (Лаб. 01)
+    ├── p1/                     ★ Проєкт №1: schema.sql · procedures.sql · seed.sql · tests.sql
+    ├── p2/                     ★ Проєкт №2: schema.sql · seed.sql · tests.sql
+    └── p3/                     ★ Проєкт №3 (MongoDB): collections.js · seed.js · queries.js
 ```
 
 ---
@@ -441,3 +429,174 @@ erDiagram
 - ER-діаграми у форматі DBML:
   - Проєкт №1 (`DetailingBookings`): [`docs/erd/project1.dbml`](file:///d:/detailing-db/docs/erd/project1.dbml)
   - Проєкт №2 (`DetailingCatalog`): [`docs/erd/project2.dbml`](file:///d:/detailing-db/docs/erd/project2.dbml)
+
+---
+
+## 10. Практичне заняття №02: Тришарова архітектура на базі ADO.NET та Dapper
+
+### 10.1. Архітектура мікросервісу `Bookings`
+
+Мікросервіс **Записи (`Bookings`)** побудований за класичною тришаровою архітектурою з виділеним ядром домену (`Bookings.Domain`):
+
+```mermaid
+flowchart LR
+    Api["Bookings.Api<br/>(Тонкі контролери, ProblemDetails)"] --> Bll["Bookings.Bll<br/>(Сервіси, DTO, AutoMapper)"]
+    Bll --> Dal["Bookings.Dal<br/>(ADO.NET, Dapper, UnitOfWork)"]
+    Api -.-> Domain["Bookings.Domain<br/>(Моделі, Константи, Винятки)"]
+    Bll --> Domain
+    Dal --> Domain
+```
+
+1. **`Bookings.Domain` (без зовнішніх NuGet-залежностей):**
+   - Доменні сутності (`Client`, `Appointment`, `AppointmentDetails`, `AppointmentItem`, `CatalogService`, `Payment`, `StatusHistoryEntry`).
+   - Матриця дозволених переходів статусів (`AppointmentStatuses.IsAllowedTransition`, `CanBeCancelled`).
+   - Доменні винятки (`ValidationException`, `NotFoundException`, `BusinessConflictException`).
+2. **`Bookings.Dal` (рівень доступу до даних — ADO.NET + Dapper):**
+   - **`ClientRepository` (`IClientRepository`):** реалізований **виключно на чистому ADO.NET** (`SqlCommand`, типізовані `SqlParameter` із `SqlDbType` та довжиною, ручне читання з `SqlDataReader`). Не спадкує `IGenericRepository`.
+   - **`BaseDapperRepository<T, TKey>`:** базова реалізація `IGenericRepository<T, TKey>` на Dapper із підтримкою м'якого видалення (`IsDeleted = 1`).
+   - **`AppointmentRepository`:** Dapper Multi-Mapping (`splitOn: "AppointmentId"`) для завантаження агрегата `Appointment` + `AppointmentDetails` + `AppointmentItems`, передача табличного параметра (`TVP dbo.AppointmentItemTableType`) через `DataTable.AsTableValuedParameter` та виклик процедур (`usp_CreateAppointment`, `usp_ChangeStatus`, `usp_DeliverCar`, `usp_CancelAppointment`, `usp_GetClientAppointments`).
+   - **`PaymentRepository` та `CatalogServiceRepository`:** спеціалізовані Dapper-репозиторії для платежів (`usp_RegisterPayment`) та локальної Read-Model копії каталогу (`MERGE` upsert).
+   - **`RepositoryBase`:** спільний базовий клас, який транслює помилки SQL Server (`50001`..`50005`, `2601`/`2627`, `547`) у типізовані доменні винятки.
+   - **`UnitOfWork` (`IUnitOfWork`):** керує єдиним `SqlConnection` та спільною транзакцією `SqlTransaction` між ADO.NET та Dapper репозиторіями.
+3. **`Bookings.Bll` (рівень бізнес-логіки):**
+   - DTO (`ClientDto`, `AppointmentDto`, `CreateAppointmentDto`, `RegisterPaymentDto`, `PagedResult<T>` тощо).
+   - Профіль AutoMapper (`BookingProfile`).
+   - Сервіси (`ClientService`, `AppointmentService`, `PaymentService`, `CatalogQueryService`), які координують транзакції через `IUnitOfWork` (`BeginTransactionAsync` / `CommitAsync` / `RollbackAsync`).
+4. **`Bookings.Api` (презентаційний рівень):**
+   - Тонкі контролери (`ClientsController`, `AppointmentsController`, `PaymentsController`, `CatalogServicesController`) без бізнес-логіки та SQL.
+   - Глобальний обробник помилок `DomainExceptionHandler : IExceptionHandler`, що повертає відповіді у форматі **RFC 7807 `ProblemDetails`** (`400`, `404`, `409`, `500`).
+   - Структурне логування **Serilog** та документація **Swagger / OpenAPI**.
+5. **`Platform.AppHost` (.NET Aspire):**
+   - Єдина точка оркестрації рішення, яка підключає ресурс бази даних `"BookingsDb"` та передає його сервісу `Bookings.Api` через `.WithReference(bookingsDb)`.
+
+---
+
+### 10.2. Збірка, запуск тестів та старт сервісу
+
+#### 1. Збірка всього рішення `Platform.slnx`:
+```powershell
+dotnet build Platform.slnx
+```
+
+#### 2. Запуск модульних та інтеграційних тестів (`Bookings.Tests`):
+```powershell
+dotnet test Platform.slnx
+```
+
+#### 3. Запуск `Bookings.Api` напряму:
+```powershell
+dotnet run --project Services/Bookings/Bookings.Api
+```
+Після запуску інтерфейс Swagger UI доступний за адресою `http://localhost:<port>/swagger`.
+
+#### 4. Запуск через оркестратор `.NET Aspire` (`Platform.AppHost`):
+```powershell
+dotnet run --project Platform.AppHost
+```
+
+---
+
+### 10.3. Приклади HTTP-запитів (`curl`)
+
+*(У прикладах нижче замініть `http://localhost:5000` на фактичний порт, виведений у консолі під час запуску).*
+
+#### 1. Створення нового клієнта (`POST /api/clients` — чистий ADO.NET):
+```bash
+curl -X POST "http://localhost:5000/api/clients" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "dmytro.detailing@example.com",
+    "fullName": "Дмитро Ковальчук",
+    "phone": "+380671112233",
+    "createdBy": "admin"
+  }'
+```
+
+#### 2. Отримання клієнта за ID (`GET /api/clients/1`):
+```bash
+curl -X GET "http://localhost:5000/api/clients/1"
+```
+
+#### 3. Створення нового запису з переліком послуг через TVP (`POST /api/appointments`):
+```bash
+curl -X POST "http://localhost:5000/api/appointments" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clientId": 1,
+    "scheduledAt": "2026-10-20T10:00:00Z",
+    "carBrand": "BMW",
+    "carModel": "X5",
+    "plateNumber": "AA7777XX",
+    "comment": "Комплексна детейлінг-мийка та полірування",
+    "createdBy": "admin",
+    "items": [
+      { "serviceId": 1, "quantity": 1, "discount": 0 },
+      { "serviceId": 3, "quantity": 1, "discount": 200 }
+    ]
+  }'
+```
+
+#### 4. Перегляд запису разом із деталями авто (1:1) та позиціями (1:N) (`GET /api/appointments/1`):
+```bash
+curl -X GET "http://localhost:5000/api/appointments/1"
+```
+
+#### 5. Зміна статусу запису (`PATCH /api/appointments/1/status`):
+```bash
+curl -X PATCH "http://localhost:5000/api/appointments/1/status" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "newStatus": "CarReceived",
+    "changedBy": "master_oleg"
+  }'
+```
+
+#### 6. Реєстрація оплати (`POST /api/appointments/1/payments`):
+```bash
+curl -X POST "http://localhost:5000/api/appointments/1/payments" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 1500.00,
+    "method": "Card"
+  }'
+```
+
+#### 7. Видача авто клієнту (`POST /api/appointments/1/deliver`):
+```bash
+curl -X POST "http://localhost:5000/api/appointments/1/deliver?changedBy=admin"
+```
+
+#### 8. Приклад помилки бізнес-логіки у форматі RFC 7807 `ProblemDetails` (`409 Conflict`):
+Спроба перевести запис зі статусу `Booked` одразу в `Delivered`:
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+  "title": "Конфлікт бізнес-логіки або стану (Business Conflict)",
+  "status": 409,
+  "detail": "Недопустимий перехід статусу для запису #1: з [Booked] у [Delivered].",
+  "instance": "/api/appointments/1/status"
+}
+```
+
+---
+
+### 10.4. Контрольні питання до Практичного заняття №02
+
+#### 1. У чому полягає різниця між чистим ADO.NET (`SqlCommand` + `SqlDataReader`) та мікро-ORM Dapper? Коли доцільно використовувати кожен підхід?
+**Відповідь:**
+- **Чистий ADO.NET** надає максимально низькорівневий контроль над командою (`SqlCommand`), параметрами (`SqlParameter` із явним `SqlDbType`, розміром та напрямком `Output`) і потоковим читанням (`SqlDataReader`). Він не має накладних витрат на рефлексію чи кешування делегатів мапінгу, але вимагає значного обсягу шаблонного коду (*boilerplate*) з ручною перевіркою `IsDBNull` та індексів колонок (`GetOrdinal`).
+- **Dapper** — це надбудова (розширення до `IDbConnection`) поверх ADO.NET, яка автоматизує прив'язку параметрів та мапінг рядків результату в C#-об'єкти (включно з Multi-Mapping для зв'язків 1:1 / 1:N) за допомогою компіляції IL-емітерів. Dapper зменшує обсяг коду в 3–5 разів за майже ідентичної швидкодії, тому є стандартом для більшості репозиторіїв у цьому мікросервісі, тоді як чистий ADO.NET використано в `ClientRepository` для демонстрації базового контракту драйвера БД.
+
+#### 2. Чому важливо явно вказувати `SqlDbType` та довжину (`Size`) рядкових параметрів у ADO.NET і Dapper замість автоматичного виведення типів?
+**Відповідь:** Якщо передавати рядковий параметр без фіксованої довжини, провайдер `Microsoft.Data.SqlClient` може визначити довжину параметра за довжиною конкретного переданого рядка (наприклад, `NVARCHAR(12)`, а наступного разу `NVARCHAR(19)`). Для SQL Server це різні сигнатури запиту, що призводить до **Plan Cache Pollution** (засмічення кешу планів виконання сотнями дублікатів одного й того самого запиту) та додаткових витрат CPU на перекомпіляцію плану. Явне задання `SqlDbType.NVarChar, 255` (або `DbType.String, size: 255` у `DynamicParameters`) гарантує повторне використання єдиного скомпільованого плану виконання.
+
+#### 3. Як патерн Unit of Work (`IUnitOfWork`) забезпечує атомарність операцій між різними репозиторіями (зокрема між ADO.NET та Dapper)?
+**Відповідь:** У нашій реалізації `UnitOfWork` створює єдиний екземпляр `SqlConnection` на область видимості HTTP-запиту (`Scoped`) і передає всім репозиторіям (`ClientRepository`, `AppointmentRepository`, `PaymentRepository`, `CatalogServiceRepository`) посилання на це з'єднання та делегат `Func<SqlTransaction?>` для отримання поточної транзакції. Коли сервіс BLL викликає `BeginTransactionAsync()`, усі подальші команди як у `SqlCommand` (ADO.NET), так і в `CommandDefinition` (Dapper) прикріплюються до тієї самої `SqlTransaction`. Якщо будь-який крок завершується помилкою, виклик `RollbackAsync()` скасовує зміни в усіх таблицях одночасно, не потребуючи розподілених транзакцій (`TransactionScope` / MSDTC).
+
+#### 4. Як реалізовано передачу списку замовлених послуг (M:N) у збережену процедуру `usp_CreateAppointment` за один мережевий виклик?
+**Відповідь:** Замість виконання циклу окремих `INSERT` для кожного рядка замовлення з коду C# (що створювало б $N$ мережевих round-trip'ів до БД), використано **Table-Valued Parameter (TVP)** типу `dbo.AppointmentItemTableType`. У `AppointmentRepository.CreateViaProcedureAsync` колекція позицій пакується в `DataTable` зі стовпцями `(ServiceId, Quantity, Discount)` і передається в Dapper через розширення `tvpTable.AsTableValuedParameter("dbo.AppointmentItemTableType")`. Збережена процедура за один раз валідує всі послуги, знімає історичний знімок `ServiceName` та `UnitPrice` із локальної репліки `dbo.Services` і вставляє всі позиції в `dbo.AppointmentItems`.
+
+#### 5. Чому контролери в `Bookings.Api` не містять блоків `try/catch`, і як клієнт API отримує структуровану інформацію про помилки?
+**Відповідь:** Перевірка та перехоплення винятків у кожному методі контролера порушує принцип DRY і захаращує презентаційний шар. Замість цього реалізовано двоступеневий конвеєр обробки помилок:
+1. У шарі DAL (`RepositoryBase.TranslateSqlException`) специфічні для СУБД винятки `SqlException` (коди `50001`..`50005`, `2601`, `2627`, `547`) перетворюються на технологічно нейтральні доменні винятки (`NotFoundException`, `BusinessConflictException`, `ValidationException`).
+2. У шарі API глобальний сервіс `DomainExceptionHandler : IExceptionHandler` перехоплює ці винятки та серіалізує їх у стандартний формат **RFC 7807 `ProblemDetails`** (`Content-Type: application/problem+json`) із відповідними HTTP-кодами (`400 Bad Request`, `404 Not Found`, `409 Conflict`, `500 Internal Server Error`).
