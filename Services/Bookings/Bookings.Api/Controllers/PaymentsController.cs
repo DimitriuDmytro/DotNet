@@ -21,23 +21,23 @@ public class PaymentsController : ControllerBase
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<PaymentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetByAppointmentId(long appointmentId, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<IReadOnlyList<PaymentDto>>> GetByAppointmentId(long appointmentId, CancellationToken cancellationToken = default)
     {
         var payments = await _paymentService.GetByAppointmentIdAsync(appointmentId, cancellationToken);
         return Ok(payments);
     }
 
     [HttpPost]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(PaymentDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> RegisterPayment(
+    public async Task<ActionResult<PaymentDto>> RegisterPayment(
         long appointmentId,
         [FromBody] RegisterPaymentDto dto,
         CancellationToken cancellationToken = default)
     {
-        await _paymentService.RegisterPaymentAsync(appointmentId, dto, cancellationToken);
-        return NoContent();
+        var payment = await _paymentService.RegisterPaymentAsync(appointmentId, dto, cancellationToken);
+        return CreatedAtAction(nameof(GetByAppointmentId), new { appointmentId }, payment);
     }
 }

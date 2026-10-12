@@ -21,7 +21,7 @@ public class CatalogServicesController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<CatalogServiceDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken = default)
+    public async Task<ActionResult<IReadOnlyList<CatalogServiceDto>>> GetAll(CancellationToken cancellationToken = default)
     {
         var services = await _catalogQueryService.GetAllAsync(cancellationToken);
         return Ok(services);
@@ -30,7 +30,7 @@ public class CatalogServicesController : ControllerBase
     [HttpGet("{id:long}")]
     [ProducesResponseType(typeof(CatalogServiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<CatalogServiceDto>> GetById(long id, CancellationToken cancellationToken = default)
     {
         var service = await _catalogQueryService.GetByIdAsync(id, cancellationToken);
         if (service == null)
@@ -43,7 +43,7 @@ public class CatalogServicesController : ControllerBase
 
     [HttpPut]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Upsert([FromBody] UpsertCatalogServiceDto dto, CancellationToken cancellationToken = default)
     {
         await _catalogQueryService.UpsertAsync(dto, cancellationToken);

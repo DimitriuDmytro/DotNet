@@ -22,7 +22,7 @@ public class AppointmentsController : ControllerBase
     [HttpGet("{id:long}")]
     [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<AppointmentDto>> GetById(long id, CancellationToken cancellationToken = default)
     {
         var appointment = await _appointmentService.GetByIdAsync(id, cancellationToken);
         return Ok(appointment);
@@ -30,7 +30,8 @@ public class AppointmentsController : ControllerBase
 
     [HttpGet("client/{clientId:long}")]
     [ProducesResponseType(typeof(IReadOnlyList<AppointmentDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetByClientId(
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<IReadOnlyList<AppointmentDto>>> GetByClientId(
         long clientId,
         [FromQuery] string? status = null,
         [FromQuery] int pageNumber = 1,
@@ -44,9 +45,9 @@ public class AppointmentsController : ControllerBase
 
     [HttpPost]
     [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Create([FromBody] CreateAppointmentDto dto, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<AppointmentDto>> Create([FromBody] CreateAppointmentDto dto, CancellationToken cancellationToken = default)
     {
         var created = await _appointmentService.CreateAsync(dto, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
@@ -54,7 +55,7 @@ public class AppointmentsController : ControllerBase
 
     [HttpPatch("{id:long}/status")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangeStatus(long id, [FromBody] ChangeStatusDto dto, CancellationToken cancellationToken = default)
@@ -86,7 +87,7 @@ public class AppointmentsController : ControllerBase
     [HttpGet("{id:long}/history")]
     [ProducesResponseType(typeof(IReadOnlyList<StatusHistoryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStatusHistory(long id, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<IReadOnlyList<StatusHistoryDto>>> GetStatusHistory(long id, CancellationToken cancellationToken = default)
     {
         var history = await _appointmentService.GetStatusHistoryAsync(id, cancellationToken);
         return Ok(history);
