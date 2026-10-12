@@ -34,15 +34,13 @@ function ensureCollectionWithValidator(collectionName, validatorSchema) {
 }
 
 /* -------------------------------------------------------------------------
-   1. Колекція reviews — відгуки клієнтів про послуги
-   Особливості:
-   - rating: ціле число (int) від 1 до 5
-   - author: вкладений об'єкт (embedding)
-   - comments: вкладений масив з 2-3 останніми коментарями (embedding)
-   - serviceId, appointmentId: логічні ідентифікатори без FK
-   - serviceName: денормалізована назва послуги з Каталогу
-   - verifiedVisit: булевий знімок підтвердженого візиту з БД Записів
-   - Гнучка схема: додаткові поля (photosBefore, photosAfter, videoUrl, pros, cons, discussionId) дозволені
+   1. Колекція reviews — відгуки клієнтів
+   Гібридний підхід:
+   - вбудовані піддокументи й масиви (embedding): author, comments[] (до 3 відповідей)
+   - посилання між колекціями (referencing): discussionId (на колекцію discussions)
+   - документи з різними наборами полів (поліморфізм): опціональні фото, відео, плюси й мінуси
+   - денормалізоване поле з політики дублювання: serviceName (з Каталогу), author.fullName, author.carInfo (з Записів)
+   - посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу (serviceId, appointmentId)
    ------------------------------------------------------------------------- */
 const reviewsSchema = {
     bsonType: "object",
@@ -61,20 +59,20 @@ const reviewsSchema = {
         serviceId: {
             bsonType: ["int", "long"],
             minimum: 1,
-            description: "Логічний ідентифікатор послуги з бази DetailingCatalog"
+            description: "Посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу (DetailingCatalog)"
         },
         serviceName: {
             bsonType: "string",
             minLength: 2,
-            description: "Денормалізована назва послуги (оновлюється подіями з Каталогу)"
+            description: "Денормалізоване поле з політики дублювання: оновлюється подіями з Каталогу"
         },
         appointmentId: {
             bsonType: ["int", "long", "null"],
-            description: "Логічний ідентифікатор візиту з бази DetailingBookings (без FK)"
+            description: "Посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу (DetailingBookings)"
         },
         discussionId: {
             bsonType: ["objectId", "null"],
-            description: "Посилання (reference) на тему обговорення в колекції discussions"
+            description: "Посилання між колекціями (referencing) на _id теми у колекції discussions"
         },
         rating: {
             bsonType: "int",
@@ -137,10 +135,11 @@ ensureCollectionWithValidator("reviews", reviewsSchema);
 
 /* -------------------------------------------------------------------------
    2. Колекція workReports — технологічні звіти майстрів по виконаних роботах
-   Особливості:
-   - вкладені масиви checklist[] та materialsUsed[]
-   - поліморфні поля для різних послуг (кераміка: layers, curingHours;
-     хімчистка: stainsRemoved, dryingTimeHours; полірування: paintThicknessBeforeMicrons тощо)
+   Особливості моделі:
+   - вбудовані піддокументи й масиви (embedding): checklist[], materialsUsed[]
+   - документи з різними наборами полів (поліморфізм): специфічні параметри робіт (layers, curingHours, stainsRemoved тощо)
+   - денормалізоване поле з політики дублювання: serviceName, carPlateNumber
+   - посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу (appointmentId, serviceId)
    ------------------------------------------------------------------------- */
 const workReportsSchema = {
     bsonType: "object",
@@ -157,19 +156,24 @@ const workReportsSchema = {
         _id: { bsonType: "objectId" },
         appointmentId: {
             bsonType: ["int", "long"],
-            description: "Логічний ідентифікатор запису з DetailingBookings (без FK)"
+            description: "Посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу (DetailingBookings)"
         },
         serviceId: {
             bsonType: ["int", "long"],
-            description: "Логічний ідентифікатор послуги з DetailingCatalog"
+            description: "Посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу (DetailingCatalog)"
         },
         serviceName: {
             bsonType: "string",
-            description: "Знімок назви послуги на момент складання звіту"
+            description: "Денормалізоване поле з політики дублювання: знімок назви послуги"
+        },
+        carPlateNumber: {
+            bsonType: "string",
+            description: "Денормалізоване поле з політики дублювання: знімок номера авто"
         },
         masterName: { bsonType: "string" },
         checklist: {
             bsonType: "array",
+            description: "Вбудовані піддокументи й масиви (embedding): етапи виконання робіт",
             minItems: 1,
             items: {
                 bsonType: "object",

@@ -41,9 +41,26 @@ BEGIN
         Description NVARCHAR(500)   NULL,
 
         CONSTRAINT PK_ServiceCategories PRIMARY KEY CLUSTERED (Id),
+        -- Унікальне поле назви категорії:
         CONSTRAINT UQ_ServiceCategories_Name UNIQUE (Name)
     );
     PRINT N'Таблицю [dbo.ServiceCategories] створено.';
+END
+GO
+
+/* -------------------------------------------------------------------------
+   Довідкові дані: категорії каталогу послуг (Reference / Lookup Data)
+   ------------------------------------------------------------------------- */
+IF NOT EXISTS (SELECT 1 FROM dbo.ServiceCategories WHERE Id = 1)
+BEGIN
+    SET IDENTITY_INSERT dbo.ServiceCategories ON;
+    INSERT INTO dbo.ServiceCategories (Id, Name, Description) VALUES
+        (1, N'Мийка', N'Дбайлива багатофазна детейлінг-мийка кузова, підвіски та дисків.'),
+        (2, N'Полірування', N'Відновлювальне, коригувальне та глибоке абразивне полірування кузова і оптики.'),
+        (3, N'Захист', N'Нанесення кераміки 9H, рідкого скла, антидощу та захисних плівок PPF.'),
+        (4, N'Салон', N'Комплексна хімчистка інтер''єру, озонування та консервація шкіри.');
+    SET IDENTITY_INSERT dbo.ServiceCategories OFF;
+    PRINT N'Довідкові дані категорій [dbo.ServiceCategories] успішно додано.';
 END
 GO
 
@@ -70,9 +87,12 @@ BEGIN
         RowVersion  ROWVERSION      NOT NULL,
 
         CONSTRAINT PK_Services PRIMARY KEY CLUSTERED (Id),
+        -- Унікальне поле назви послуги:
         CONSTRAINT UQ_Services_Name UNIQUE (Name),
+        -- Зв'язок 1:N (категорія -> послуги):
         CONSTRAINT FK_Services_ServiceCategories FOREIGN KEY (CategoryId)
             REFERENCES dbo.ServiceCategories (Id) ON DELETE NO ACTION,
+        -- Обмеження CHECK (вартість та тривалість):
         CONSTRAINT CK_Services_Price CHECK (Price > 0),
         CONSTRAINT CK_Services_DurationMin CHECK (DurationMin > 0)
     );
@@ -123,7 +143,9 @@ BEGIN
         RowVersion  ROWVERSION      NOT NULL,
 
         CONSTRAINT PK_Packages PRIMARY KEY CLUSTERED (Id),
+        -- Унікальне поле назви пакета:
         CONSTRAINT UQ_Packages_Name UNIQUE (Name),
+        -- Обмеження CHECK вартості:
         CONSTRAINT CK_Packages_Price CHECK (Price > 0)
     );
     PRINT N'Таблицю [dbo.Packages] створено.';
@@ -132,8 +154,8 @@ GO
 
 /* -------------------------------------------------------------------------
    5. Таблиця PackageServices (сутність PackageService) — зв'язок M:N між
-   Packages та Services зі складеним PK (PackageId, ServiceId) і власними
-   полями SortOrder та AddedAt.
+   Packages та Services зі складеним PK (PackageId, ServiceId).
+   Проміжна сутність M:N має власне поле (наприклад, дату додавання AddedAt та порядок сортування SortOrder).
    ------------------------------------------------------------------------- */
 IF OBJECT_ID(N'dbo.PackageServices', N'U') IS NULL
 BEGIN
@@ -141,6 +163,7 @@ BEGIN
     (
         PackageId BIGINT       NOT NULL,
         ServiceId BIGINT       NOT NULL,
+        -- Власні поля проміжної сутності M:N (дата додавання та порядок):
         SortOrder INT          NOT NULL CONSTRAINT DF_PackageServices_SortOrder DEFAULT (1),
         AddedAt   DATETIME2(3) NOT NULL CONSTRAINT DF_PackageServices_AddedAt DEFAULT (SYSUTCDATETIME()),
 

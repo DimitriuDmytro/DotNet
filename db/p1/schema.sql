@@ -154,7 +154,7 @@ BEGIN
     CREATE TABLE dbo.AppointmentItems
     (
         AppointmentId BIGINT        NOT NULL,
-        ServiceId     BIGINT        NOT NULL, -- Логічний ідентифікатор послуги з Каталогу (та локальної репліки)
+        ServiceId     BIGINT        NOT NULL, -- Посилання на сутність іншого контексту — звичайний стовпець/поле з її Id, без зовнішнього ключа на іншу базу
         ServiceName   NVARCHAR(200) NOT NULL, -- Знімок назви послуги на момент запису
         UnitPrice     DECIMAL(18,2) NOT NULL, -- Знімок ціни за одиницю на момент запису
         Discount      DECIMAL(18,2) NOT NULL CONSTRAINT DF_AppointmentItems_Discount DEFAULT (0.00),

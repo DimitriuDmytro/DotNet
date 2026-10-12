@@ -4,21 +4,31 @@
 
 ---
 
-## 1. Опис проєкту та 3 обмежені контексти (Bounded Contexts)
+## 1. Предметна область та три незалежні контексти (Bounded Contexts)
 
-Детейлінг-студія надає послуги з професійного догляду за автомобілями: багатофазна мийка, полірування кузова й оптики, нанесення захисних керамічних покриттів та хімчистка салону. Адміністратори студії приймають записи та супроводжують автомобіль через етапи робіт, клієнти обирають послуги або пакети з каталогу й після обслуговування залишають відгуки та переглядають звіти майстрів.
+### Короткий опис домену
+Детейлінг-студія надає професійні послуги з комплексного догляду за автомобілями: багатофазна мийка, відновлювальне та абразивне полірування кузова, нанесення захисних керамічних покриттів і хімчистка салону. Адміністратори студії приймають попередні записи клієнтів, фіксують прийом авто, ведуть автомобіль через етапи робіт та контролюють розрахунки. Клієнти обирають послуги або комплексні пакети з каталогу, а після завершення візиту залишають відгуки та переглядають звіти майстрів.
 
-Архітектура системи розділена на **три незалежні контексти**, кожен з яких володіє власною базою даних:
+### Три незалежні контексти (кожен — окрема БД) та їхні сутності
+Кожна сутність у системі належить **рівно одному контексту** (єдине джерело істини — *System of Record*):
+
+1. **Контекст «Записи» (`Bookings`)** — база даних `DetailingBookings` (SQL Server, ADO.NET + Dapper):
+   - **Сутності контексту:** `Clients`, `Appointments`, `AppointmentDetails`, `AppointmentItems`, `Payments`, `AppointmentStatusHistory`.
+   - *Примітка:* каталог `Services` належить Каталогу; у `AppointmentItems` зберігається лише зовнішній `ServiceId` (без FK) та знімок цін.
+2. **Контекст «Каталог послуг» (`Catalog`)** — база даних `DetailingCatalog` (SQL Server, EF Core Code First):
+   - **Сутності контексту:** `ServiceCategories`, `Services`, `ServiceSpecs`, `ServiceImages`, `Packages`, `PackageServices`.
+3. **Контекст «Відгуки та звіти» (`Reviews`)** — база даних `detailing_reviews` (MongoDB, MongoDB.Driver):
+   - **Сутності контексту:** `reviews`, `workReports`, `discussions`, `messages`.
 
 | № | Контекст | СКБД та назва БД | Майбутній стек у .NET | Зона відповідальності |
 | :-: | :--- | :--- | :--- | :--- |
-| **1** | **Записи (`Bookings`)** | SQL Server: `DetailingBookings` | ADO.NET + Dapper | Клієнти, записи на візит (`Appointments`), деталі авто (1:1), позиції замовлення зі знімками цін (M:N), локальна репліка послуг, платежі, історія переходів між статусами та 6 збережених процедур. |
+| **1** | **Записи (`Bookings`)** | SQL Server: `DetailingBookings` | ADO.NET + Dapper | Клієнти, записи на візит (`Appointments`), деталі авто (1:1), позиції замовлення зі знімками цін (M:N), платежі, історія переходів між статусами та 6 збережених процедур. |
 | **2** | **Каталог послуг (`Catalog`)** | SQL Server: `DetailingCatalog` | EF Core (Code First) | Категорії послуг (`ServiceCategories`), послуги (`Services`), технічні специфікації (1:1 `ServiceSpecs`), фотогалерея (1:N `ServiceImages`) та пакетні пропозиції (M:N `Packages` $\leftrightarrow$ `PackageServices`). |
 | **3** | **Відгуки та звіти (`Reviews`)** | MongoDB: `detailing_reviews` | MongoDB.Driver | Відгуки клієнтів з гнучкою схемою (`reviews`), поліморфні технологічні звіти майстрів (`workReports`), теми обговорень (`discussions`) та потік повідомлень (`messages`). |
 
 ### Жорсткі архітектурні принципи проєкту
-- **Жодних міжбазових `FOREIGN KEY`**, спільних таблиць або міжбазових `JOIN`. Посилання на сутність іншого контексту зберігається як звичайне числове поле (`ServiceId`, `AppointmentId`) без фізичного обмеження.
-- **Кожна сутність належить рівно одному контексту** (єдине джерело істини — *System of Record*).
+- **Жодних міжбазових `FOREIGN KEY`**, спільних таблиць або міжбазових `JOIN`. Посилання на сутність іншого контексту зберігається як звичайний стовпець/поле з її Id (`ServiceId`, `AppointmentId`) без фізичного зовнішнього ключа на іншу базу.
+- **Кожна сутність належить рівно одному контексту** (жодна сутність не дублюється між контекстами як власна таблиця чи колекція).
 - **Повна ідемпотентність усіх скриптів**: повторне виконання будь-якого скрипту (`00_create_db.sql`, `schema.sql`, `procedures.sql`, `seed.sql`, `collections.js`, `seed.js`) не призводить до помилок і не створює дублікатів.
 
 ### Структура репозиторію (відповідно до вимог перевірки Лаб. 01)
@@ -283,10 +293,151 @@ db.getCollectionInfos().map(c => ({ name: c.name, options: c.options }));
 
 ---
 
-## Додаткова документація у репозиторії
-- [`docs/domain.md`](file:///d:/detailing-db/docs/domain.md) — опис предметної області, обмежених контекстів, сутностей та меж агрегатів.
-- [`docs/duplication-policy.md`](file:///d:/detailing-db/docs/duplication-policy.md) — детальна політика дублювання та синхронізації даних між контекстами.
+## 8. ERD-діаграми (Entity Relationship Diagrams)
+
+### 8.1. ER-діаграма Проєкту №1: `DetailingBookings` (SQL Server)
+
+```mermaid
+erDiagram
+    Clients ||--o{ Appointments : "1:N (ON DELETE NO ACTION)"
+    Appointments ||--|| AppointmentDetails : "1:1 (PK=FK, ON DELETE CASCADE)"
+    Appointments ||--|{ AppointmentItems : "1:N (ON DELETE CASCADE)"
+    Appointments ||--o{ Payments : "1:N (ON DELETE NO ACTION)"
+    Appointments ||--o{ AppointmentStatusHistory : "1:N (ON DELETE NO ACTION)"
+
+    Clients {
+        bigint Id PK "IDENTITY(1,1)"
+        nvarchar_255 Email UK "NOT NULL UNIQUE"
+        nvarchar_200 FullName "NOT NULL"
+        nvarchar_30 Phone "NOT NULL"
+        datetime2 CreatedAt "DEFAULT SYSUTCDATETIME()"
+        nvarchar_100 CreatedBy "DEFAULT 'system'"
+        datetime2 UpdatedAt "NULL"
+        nvarchar_100 UpdatedBy "NULL"
+        bit IsDeleted "DEFAULT 0 (Soft Delete)"
+    }
+
+    Appointments {
+        bigint Id PK "IDENTITY(1,1)"
+        bigint ClientId FK "REFERENCES Clients(Id)"
+        nvarchar_30 Status "CHECK (Booked..Delivered, Cancelled)"
+        datetime2 ScheduledAt "NOT NULL"
+        decimal_18_2 TotalAmount "CHECK >= 0"
+        datetime2 CreatedAt "DEFAULT SYSUTCDATETIME()"
+        nvarchar_100 CreatedBy "DEFAULT 'system'"
+        datetime2 UpdatedAt "NULL"
+        nvarchar_100 UpdatedBy "NULL"
+        bit IsDeleted "DEFAULT 0"
+        rowversion RowVersion "Optimistic Concurrency"
+    }
+
+    AppointmentDetails {
+        bigint AppointmentId PK,FK "1:1 REFERENCES Appointments(Id) CASCADE"
+        nvarchar_100 CarBrand "NOT NULL"
+        nvarchar_100 CarModel "NOT NULL"
+        nvarchar_20 PlateNumber "NOT NULL"
+        nvarchar_1000 Comment "NULL"
+    }
+
+    AppointmentItems {
+        bigint AppointmentId PK,FK "REFERENCES Appointments(Id) CASCADE"
+        bigint ServiceId PK "Зовнішній Id без FK"
+        nvarchar_200 ServiceName "Знімок назви послуги"
+        decimal_18_2 UnitPrice "Знімок ціни на момент запису"
+        decimal_18_2 Discount "DEFAULT 0.00"
+        int Quantity "DEFAULT 1"
+    }
+
+    Payments {
+        bigint Id PK "IDENTITY(1,1)"
+        bigint AppointmentId FK "REFERENCES Appointments(Id) NO ACTION"
+        decimal_18_2 Amount "CHECK > 0"
+        nvarchar_30 Method "CHECK (Cash, Card, BankTransfer)"
+        datetime2 PaidAt "DEFAULT SYSUTCDATETIME()"
+    }
+
+    AppointmentStatusHistory {
+        bigint Id PK "IDENTITY(1,1)"
+        bigint AppointmentId FK "REFERENCES Appointments(Id) NO ACTION"
+        nvarchar_30 OldStatus "NULL"
+        nvarchar_30 NewStatus "NOT NULL"
+        nvarchar_500 Reason "NULL"
+        datetime2 ChangedAt "DEFAULT SYSUTCDATETIME()"
+        nvarchar_100 ChangedBy "DEFAULT 'system'"
+    }
+```
+
+### 8.2. ER-діаграма Проєкту №2: `DetailingCatalog` (SQL Server)
+
+```mermaid
+erDiagram
+    ServiceCategories ||--o{ Services : "1:N (ON DELETE NO ACTION)"
+    Services ||--|| ServiceSpecs : "1:1 (PK=FK, ON DELETE CASCADE)"
+    Services ||--o{ ServiceImages : "1:N (ON DELETE CASCADE)"
+    Packages ||--|{ PackageServices : "1:N частина M:N (ON DELETE CASCADE)"
+    Services ||--o{ PackageServices : "1:N частина M:N (ON DELETE NO ACTION)"
+
+    ServiceCategories {
+        bigint Id PK "IDENTITY(1,1)"
+        nvarchar_100 Name UK "NOT NULL UNIQUE"
+        nvarchar_500 Description "NULL"
+    }
+
+    Services {
+        bigint Id PK "IDENTITY(1,1) System of Record"
+        bigint CategoryId FK "REFERENCES ServiceCategories(Id)"
+        nvarchar_200 Name UK "NOT NULL UNIQUE"
+        decimal_18_2 Price "CHECK > 0"
+        int DurationMin "CHECK > 0"
+        datetime2 CreatedAt "DEFAULT SYSUTCDATETIME()"
+        nvarchar_100 CreatedBy "DEFAULT 'system'"
+        datetime2 UpdatedAt "NULL"
+        nvarchar_100 UpdatedBy "NULL"
+        bit IsDeleted "DEFAULT 0 (Soft Delete)"
+        rowversion RowVersion "Optimistic Concurrency"
+    }
+
+    ServiceSpecs {
+        bigint ServiceId PK,FK "1:1 REFERENCES Services(Id) CASCADE"
+        nvarchar_500 Materials "NOT NULL"
+        int WarrantyMonths "CHECK >= 0"
+        nvarchar_2000 Description "NOT NULL"
+    }
+
+    ServiceImages {
+        bigint Id PK "IDENTITY(1,1)"
+        bigint ServiceId FK "REFERENCES Services(Id) CASCADE"
+        nvarchar_500 Url "NOT NULL"
+        bit IsMain "DEFAULT 0"
+    }
+
+    Packages {
+        bigint Id PK "IDENTITY(1,1)"
+        nvarchar_150 Name UK "NOT NULL UNIQUE"
+        nvarchar_1000 Description "NULL"
+        decimal_18_2 Price "CHECK > 0"
+        datetime2 CreatedAt "DEFAULT SYSUTCDATETIME()"
+        nvarchar_100 CreatedBy "DEFAULT 'system'"
+        datetime2 UpdatedAt "NULL"
+        nvarchar_100 UpdatedBy "NULL"
+        bit IsDeleted "DEFAULT 0 (Soft Delete)"
+        rowversion RowVersion "Optimistic Concurrency"
+    }
+
+    PackageServices {
+        bigint PackageId PK,FK "REFERENCES Packages(Id) CASCADE"
+        bigint ServiceId PK,FK "REFERENCES Services(Id) NO ACTION"
+        int SortOrder "DEFAULT 1"
+        datetime2 AddedAt "DEFAULT SYSUTCDATETIME()"
+    }
+```
+
+---
+
+## 9. Додаткова документація у репозиторії
+- [`docs/domain.md`](file:///d:/detailing-db/docs/domain.md) — опис предметної області, 3 незалежних контекстів, сутностей, агрегатів та патернів MongoDB (embedding, referencing, hybrid, поліморфізм).
+- [`docs/duplication-policy.md`](file:///d:/detailing-db/docs/duplication-policy.md) — детальна таблиця політики дублювання та синхронізації даних між контекстами.
 - [`docs/decisions.md`](file:///d:/detailing-db/docs/decisions.md) — архітектурні рішення (ADR): PK, каскади, конкурентність, коди помилок та прийняті припущення.
-- ER-діаграми:
-  - Проєкт №1 (`DetailingBookings`): [`docs/erd/project1.dbml`](file:///d:/detailing-db/docs/erd/project1.dbml) та [`docs/erd/project1.md`](file:///d:/detailing-db/docs/erd/project1.md)
-  - Проєкт №2 (`DetailingCatalog`): [`docs/erd/project2.dbml`](file:///d:/detailing-db/docs/erd/project2.dbml) та [`docs/erd/project2.md`](file:///d:/detailing-db/docs/erd/project2.md)
+- ER-діаграми у форматі DBML:
+  - Проєкт №1 (`DetailingBookings`): [`docs/erd/project1.dbml`](file:///d:/detailing-db/docs/erd/project1.dbml)
+  - Проєкт №2 (`DetailingCatalog`): [`docs/erd/project2.dbml`](file:///d:/detailing-db/docs/erd/project2.dbml)
