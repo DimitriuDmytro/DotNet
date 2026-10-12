@@ -113,27 +113,38 @@
 
 ---
 
-## ADR-08: Координація транзакцій через Unit of Work (`IUnitOfWork`)
+## ADR-08: Координація транзакцій через Unit of Work (`IUnitOfWork`), рівень ізоляції та таймаути
 
 ### Рішення
-- Клас `UnitOfWork` створює та утримує єдиний екземпляр `SqlConnection` на час життя HTTP-запиту (`Scoped`) і передає всім репозиторіям делегат `Func<SqlTransaction?>` для доступу до поточної активної транзакції.
-- Коли бізнес-операція в BLL (наприклад, `AppointmentService.CreateAsync` або `PaymentService.RegisterPaymentAsync`) викликає `await _unitOfWork.BeginTransactionAsync()`, і ADO.NET-репозиторій (`Clients`), і Dapper-репозиторії (`CatalogServices`, `Appointments`, `Payments`) автоматично виконують свої запити в межах одного `SqlConnection` та однієї `SqlTransaction`.
-- У разі будь-якого винятку блок `catch` у BLL гарантовано викликає `await _unitOfWork.RollbackAsync()`.
+1. **Єдине з'єднання та транзакція:** Клас `UnitOfWork` створює та утримує єдиний екземпляр `SqlConnection` на час життя HTTP-запиту (`Scoped`) і передає всім репозиторіям делегат `Func<SqlTransaction?>` для доступу до поточної активної транзакції.
+2. **Рівень ізоляції (`IsolationLevel.ReadCommitted`):** Метод `BeginTransactionAsync` відкриває транзакцію з рівнем ізоляції `IsolationLevel.ReadCommitted`, тоді як критичні читання стану перед оновленням у збережених процедурах (`usp_ChangeStatus`, `usp_RegisterPayment`, `usp_DeliverCar`, `usp_CancelAppointment`) використовують точкові блокувальні хінти `WITH (UPDLOCK, ROWLOCK)` (та `WITH (HOLDLOCK)` у `usp_CreateAppointment`).
+3. **Таймаут виконання команд (`DefaultCommandTimeoutSeconds = 30`):** У базовому класі `RepositoryBase` встановлено константу `DefaultCommandTimeoutSeconds = 30` секунд, яка явно передається як у `SqlCommand.CommandTimeout` (чистий ADO.NET), так і в `CommandDefinition(commandTimeout: 30)` (Dapper).
+4. **Безпечний відкат:** У разі будь-якого винятку блок `catch` у BLL гарантовано викликає `await _unitOfWork.RollbackAsync()`, який безпечно перевіряє, чи транзакція вже не була відкочена на боці SQL Server через `SET XACT_ABORT ON`.
+
+### Обґрунтування (Компроміс Deadlocks vs Consistency)
+- **Чому не `Serializable` або `RepeatableRead` глобально для всієї транзакції UoW:**
+  - Глобальний рівень `Serializable` у SQL Server накладає діапазонні блокування (`Key-Range Locks`, `RangeS-S`), що при одночасному оформленні записів різними клієнтами призводить до частих взаємних блокувань (**Deadlocks**, код `1205`) та різкого падіння пропускної здатності (Throughput).
+  - Рівень `ReadCommitted` у поєднанні з точковим `WITH (UPDLOCK, ROWLOCK)` на конкретному рядку `Appointments WHERE Id = @AppointmentId` забезпечує ідеальний баланс **Consistency vs Deadlocks**:
+    1. Звичайні читання не утримують S-блокування до кінця транзакції.
+    2. Два паралельні запити на зміну статусу чи оплату одного й того самого запису шикуються в чергу на `U`-блокуванні (`UPDLOCK`) від самого початку читання стану, що запобігає класичному дедлоку конверсії `S -> X` (коли дві транзакції спочатку читають рядок під `S`-lock у `RepeatableRead`, а потім обидві намагаються підвищити його до `X`-lock при `UPDATE`).
+    3. Таймаут 30 секунд захищає пул потоків та пул з'єднань від «завислих» запитів при мережевих збоях або довгих блокуваннях.
 
 ---
 
 ## ADR-09: Трансляція помилок БД у доменні винятки та RFC 7807 ProblemDetails
 
 ### Рішення
-1. **Рівень DAL (`RepositoryBase.TranslateSqlException`):** перехоплює `SqlException` і перетворює коди помилок SQL Server на доменні винятки з `Bookings.Domain.Exceptions`:
+1. **Рівень DAL (`RepositoryBase.TranslateSqlException`):** перехоплює `SqlException` і перетворює коди помилок SQL Server на доменні винятки з `Bookings.Domain.Exceptions` без витоку сирих інфраструктурних SQL-повідомлень:
    - `50001` $\rightarrow$ `NotFoundException`
    - `50002`, `50003`, `50004` $\rightarrow$ `BusinessConflictException`
    - `50005` $\rightarrow$ `ValidationException`
    - `2601`, `2627` (порушення `UNIQUE`) $\rightarrow$ `BusinessConflictException`
    - `547` (порушення `FOREIGN KEY` / `CHECK`) $\rightarrow$ `BusinessConflictException`
-2. **Рівень API (`DomainExceptionHandler : IExceptionHandler`):** перехоплює доменні винятки на рівні всього пайплайну ASP.NET Core і формує відповідь у форматі **RFC 7807 `ProblemDetails`** (`application/problem+json`):
+   - `1205` (Deadlock) $\rightarrow$ `BusinessConflictException`
+   - `-2` (Timeout) $\rightarrow$ `TimeoutException`
+2. **Рівень API (`DomainExceptionHandler : IExceptionHandler`):** перехоплює винятки на рівні всього пайплайну ASP.NET Core і формує відповідь у форматі **RFC 7807 `ProblemDetails`** (`application/problem+json`) з обов'язковим полем `traceId` у `Extensions`:
    - `ValidationException` $\rightarrow$ `400 Bad Request`
    - `NotFoundException` $\rightarrow$ `404 Not Found`
    - `BusinessConflictException` $\rightarrow$ `409 Conflict`
-   - Інші винятки $\rightarrow$ `500 Internal Server Error`
+   - Інші винятки $\rightarrow$ `500 Internal Server Error` (де в `detail` повертається безпечне загальне повідомлення без витоку `exception.Message`).
 3. Контролери не містять блоків `try/catch` і залишаються тонкими.

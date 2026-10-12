@@ -8,8 +8,9 @@ using Bookings.Domain.Models;
 
 /// <summary>
 /// Репозиторій клієнтів, реалізований ВИКЛЮЧНО на чистому ADO.NET (без використання Dapper).
-/// Демонструє явне керування командами SqlCommand, параметрами SqlParameter з типізацією SqlDbType
-/// та постовпчикове вичитування SqlDataReader.
+/// Демонструє явне керування командами SqlCommand, параметрами SqlParameter з типізацією SqlDbType,
+/// асинхронним звільненням ресурсів (await using) та постовпчиковим вичитуванням SqlDataReader.
+/// Свідомо НЕ успадковує IGenericRepository<T>.
 /// </summary>
 public class ClientRepository : RepositoryBase, IClientRepository
 {
@@ -27,10 +28,13 @@ public class ClientRepository : RepositoryBase, IClientRepository
                 FROM dbo.Clients
                 WHERE Id = @Id AND IsDeleted = 0;";
 
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             command.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
 
-            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
                 return MapClient(reader);
@@ -49,10 +53,13 @@ public class ClientRepository : RepositoryBase, IClientRepository
                 FROM dbo.Clients
                 WHERE Email = @Email AND IsDeleted = 0;";
 
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             command.Parameters.Add(new SqlParameter("@Email", SqlDbType.NVarChar, 255) { Value = email });
 
-            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
                 return MapClient(reader);
@@ -77,12 +84,15 @@ public class ClientRepository : RepositoryBase, IClientRepository
                 ORDER BY Id DESC
                 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
 
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             command.Parameters.Add(new SqlParameter("@Offset", SqlDbType.Int) { Value = offset });
             command.Parameters.Add(new SqlParameter("@PageSize", SqlDbType.Int) { Value = pageSize });
 
             var list = new List<Client>();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
                 list.Add(MapClient(reader));
@@ -101,7 +111,10 @@ public class ClientRepository : RepositoryBase, IClientRepository
                 VALUES (@Email, @FullName, @Phone, SYSUTCDATETIME(), @CreatedBy, 0);
                 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
 
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             command.Parameters.Add(new SqlParameter("@Email", SqlDbType.NVarChar, 255) { Value = client.Email });
             command.Parameters.Add(new SqlParameter("@FullName", SqlDbType.NVarChar, 200) { Value = client.FullName });
             command.Parameters.Add(new SqlParameter("@Phone", SqlDbType.NVarChar, 30) { Value = client.Phone });
@@ -125,7 +138,10 @@ public class ClientRepository : RepositoryBase, IClientRepository
                     UpdatedBy = @UpdatedBy
                 WHERE Id = @Id AND IsDeleted = 0;";
 
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             command.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = client.Id });
             command.Parameters.Add(new SqlParameter("@Email", SqlDbType.NVarChar, 255) { Value = client.Email });
             command.Parameters.Add(new SqlParameter("@FullName", SqlDbType.NVarChar, 200) { Value = client.FullName });
@@ -148,7 +164,10 @@ public class ClientRepository : RepositoryBase, IClientRepository
                     UpdatedBy = @UpdatedBy
                 WHERE Id = @Id AND IsDeleted = 0;";
 
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             command.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = id });
             command.Parameters.Add(new SqlParameter("@UpdatedBy", SqlDbType.NVarChar, 100) { Value = (object?)deletedBy ?? "system" });
 
@@ -162,7 +181,10 @@ public class ClientRepository : RepositoryBase, IClientRepository
         return await ExecuteAsync(async () =>
         {
             const string sql = @"SELECT COUNT(*) FROM dbo.Clients WHERE IsDeleted = 0;";
-            using var command = new SqlCommand(sql, Connection, Transaction);
+            await using var command = new SqlCommand(sql, Connection, Transaction)
+            {
+                CommandTimeout = DefaultCommandTimeoutSeconds
+            };
             var result = await command.ExecuteScalarAsync(cancellationToken);
             return Convert.ToInt32(result);
         });

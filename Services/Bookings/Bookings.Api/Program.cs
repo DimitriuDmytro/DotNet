@@ -34,15 +34,20 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 
-// 4. Реєстрація AutoMapper (профілі з рівня BLL)
-builder.Services.AddAutoMapper(cfg => cfg.AddProfile<BookingProfile>());
+// 4. Реєстрація AutoMapper (профілі з рівня BLL + LicenseKey з конфігурації)
+builder.Services.AddAutoMapper(cfg =>
+{
+    cfg.LicenseKey = builder.Configuration["AutoMapper:LicenseKey"];
+    cfg.AddProfile<BookingProfile>();
+});
 
 // 5. Реєстрація DAL (Unit of Work зі спільним з'єднанням на Scoped-запит)
 builder.Services.AddScoped<IUnitOfWork>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
     var connectionString = config.GetConnectionString("BookingsDb")
-        ?? "Server=(localdb)\\MSSQLLocalDB;Database=DetailingBookings;Trusted_Connection=True;TrustServerCertificate=True;";
+        ?? throw new InvalidOperationException(
+            "Рядок підключення 'BookingsDb' не знайдено у конфігурації. Перевизначте через ConnectionStrings__BookingsDb.");
     return new UnitOfWork(connectionString);
 });
 

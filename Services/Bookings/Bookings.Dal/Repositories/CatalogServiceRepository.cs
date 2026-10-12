@@ -9,7 +9,7 @@ using Bookings.Domain.Models;
 /// Репозиторій для роботи з локальною реплікою довідника послуг (таблиця dbo.Services).
 /// Працює за схемою Read-Model (зберігає копію послуг з контексту Catalog).
 /// </summary>
-public class CatalogServiceRepository : BaseDapperRepository<CatalogService, long>, ICatalogServiceRepository
+public class CatalogServiceRepository : BaseDapperRepository<CatalogService>, ICatalogServiceRepository
 {
     protected override string TableName => "dbo.Services";
     protected override bool HasSoftDelete => false;

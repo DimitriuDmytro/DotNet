@@ -10,6 +10,11 @@ using Bookings.Domain.Exceptions;
 /// </summary>
 public abstract class RepositoryBase
 {
+    /// <summary>
+    /// Стандартний таймаут виконання SQL-команди (30 секунд).
+    /// </summary>
+    protected const int DefaultCommandTimeoutSeconds = 30;
+
     protected readonly SqlConnection Connection;
     private readonly Func<SqlTransaction?> _transactionProvider;
 
@@ -65,24 +70,28 @@ public abstract class RepositoryBase
     }
 
     /// <summary>
-    /// Трансляція кодів помилок SQL Server та користувацьких THROW у строго типізовані доменні винятки.
+    /// Трансляція кодів помилок SQL Server та користувацьких THROW у строго типізовані доменні винятки
+    /// без витоку сирих інфраструктурних повідомлень на рівень API.
     /// </summary>
     protected Exception TranslateSqlException(SqlException ex)
     {
         return ex.Number switch
         {
-            // Користувацькі коди збережених процедур
+            // Користувацькі коди збережених процедур з db/p1/procedures.sql
             50001 => new NotFoundException(ex.Message, ex),
             50002 => new BusinessConflictException(ex.Message, ex),
             50003 => new BusinessConflictException(ex.Message, ex),
             50004 => new BusinessConflictException(ex.Message, ex),
             50005 => new ValidationException(ex.Message),
 
-            // Стандартні коди обмежень SQL Server
+            // Стандартні коди обмежень та блокувань SQL Server
             2601 or 2627 => new BusinessConflictException("Запис з таким унікальним значенням вже існує в системі.", ex),
             547 => new BusinessConflictException("Порушення цілісності даних (зовнішній ключ або обмеження перевірки CHECK).", ex),
+            1205 => new BusinessConflictException("Конфлікт паралельного доступу (Deadlock). Будь ласка, повторіть операцію.", ex),
+            -2 => new TimeoutException("Перевищено час очікування відповіді від бази даних.", ex),
 
-            _ => ex
+            // Обгортання будь-яких інших системних SQL-помилок для запобігання витоку raw SQL
+            _ => new InvalidOperationException("Внутрішня помилка під час виконання запиту до бази даних.", ex)
         };
     }
 }

@@ -1,7 +1,15 @@
 namespace Bookings.Dal.Interfaces;
 
 /// <summary>
-/// Узагальнений інтерфейс репозиторію для базових CRUD-операцій.
+/// Узагальнений інтерфейс репозиторію для базових CRUD-операцій з ключем типу long.
+/// </summary>
+/// <typeparam name="T">Тип доменної сутності</typeparam>
+public interface IGenericRepository<T> : IGenericRepository<T, long> where T : class
+{
+}
+
+/// <summary>
+/// Узагальнений інтерфейс репозиторію для базових CRUD-операцій із довільним типом ключа.
 /// </summary>
 /// <typeparam name="T">Тип сутності</typeparam>
 /// <typeparam name="TKey">Тип первинного ключа</typeparam>

@@ -5,7 +5,7 @@ using Bookings.Domain.Models;
 /// <summary>
 /// Репозиторій записів на детейлінг (реалізація через Dapper, Multi-mapping, TVP та збережені процедури).
 /// </summary>
-public interface IAppointmentRepository : IGenericRepository<Appointment, long>
+public interface IAppointmentRepository : IGenericRepository<Appointment>
 {
     /// <summary>
     /// Отримання повного агрегата Appointment разом із деталями авто (1:1) та списком замовлених послуг (1:N).

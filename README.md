@@ -471,38 +471,53 @@ flowchart LR
 
 ---
 
-### 10.2. Збірка, запуск тестів та старт сервісу
+### 10.2. Налаштування конфігурації, збірка, запуск тестів та старт сервісу
 
-#### 1. Збірка всього рішення `Platform.slnx`:
+#### 1. Налаштування рядка підключення та ключа AutoMapper (без секретів у `appsettings.json`):
+У файлі `appsettings.json` збережено лише плейсхолдер `<SET_VIA_ENV_ConnectionStrings__BookingsDb>`, а для локальної розробки (`Development`) у `appsettings.Development.json` використано підключення до `LocalDB` через Windows Authentication (`Trusted_Connection=True`).
+
+Для перевизначення рядка підключення та ліцензійного ключа AutoMapper через змінні середовища:
+```powershell
+# PowerShell:
+$env:ConnectionStrings__BookingsDb = "Server=(localdb)\MSSQLLocalDB;Database=DetailingBookings;Trusted_Connection=True;TrustServerCertificate=True;"
+$env:AutoMapper__LicenseKey = "<YOUR_AUTOMAPPER_KEY_IF_APPLICABLE>"
+```
+
+#### 2. Збірка всього рішення `Platform.slnx`:
 ```powershell
 dotnet build Platform.slnx
 ```
 
-#### 2. Запуск модульних та інтеграційних тестів (`Bookings.Tests`):
+#### 3. Запуск модульних та інтеграційних тестів (`Bookings.Tests`):
 ```powershell
 dotnet test Platform.slnx
 ```
 
-#### 3. Запуск `Bookings.Api` напряму:
+#### 4. Запуск `Bookings.Api` напряму:
 ```powershell
 dotnet run --project Services/Bookings/Bookings.Api
 ```
-Після запуску інтерфейс Swagger UI доступний за адресою `http://localhost:<port>/swagger`.
+Після запуску інтерфейс **Swagger UI** доступний за адресою `http://localhost:<port>/swagger` (наприклад, `http://localhost:5188/swagger`).
 
-#### 4. Запуск через оркестратор `.NET Aspire` (`Platform.AppHost`):
+#### 5. Запуск через оркестратор `.NET Aspire` (`Platform.AppHost`):
 ```powershell
 dotnet run --project Platform.AppHost
 ```
+У виводі консолі `Platform.AppHost` з'явиться посилання на **Aspire Dashboard** з токеном авторизації:
+```text
+Login to the dashboard at https://localhost:17145/login?t=<token>
+```
+Перейдіть за цим посиланням у браузері: у вкладці **Resources** відображатимуться ресурс бази даних `BookingsDb` та сервіс `bookings-api` із прямим посиланням (Endpoint URL) на його Swagger та логи/трейси у вкладках **Console** / **Structured** / **Traces**.
 
 ---
 
 ### 10.3. Приклади HTTP-запитів (`curl`)
 
-*(У прикладах нижче замініть `http://localhost:5000` на фактичний порт, виведений у консолі під час запуску).*
+*(У прикладах нижче замініть `http://localhost:5188` на фактичний порт, виведений у консолі під час запуску або в колонці Endpoints на Aspire Dashboard).*
 
-#### 1. Створення нового клієнта (`POST /api/clients` — чистий ADO.NET):
+#### 1. Створення нового клієнта (`POST /api/clients` — чистий ADO.NET, `201 Created`):
 ```bash
-curl -X POST "http://localhost:5000/api/clients" \
+curl -i -X POST "http://localhost:5188/api/clients" \
   -H "Content-Type: application/json" \
   -d '{
     "email": "dmytro.detailing@example.com",
@@ -512,14 +527,14 @@ curl -X POST "http://localhost:5000/api/clients" \
   }'
 ```
 
-#### 2. Отримання клієнта за ID (`GET /api/clients/1`):
+#### 2. Отримання клієнта за ID (`GET /api/clients/1` — `200 OK`):
 ```bash
-curl -X GET "http://localhost:5000/api/clients/1"
+curl -i -X GET "http://localhost:5188/api/clients/1"
 ```
 
-#### 3. Створення нового запису з переліком послуг через TVP (`POST /api/appointments`):
+#### 3. Створення нового запису з переліком послуг через TVP (`POST /api/appointments` — `201 Created`):
 ```bash
-curl -X POST "http://localhost:5000/api/appointments" \
+curl -i -X POST "http://localhost:5188/api/appointments" \
   -H "Content-Type: application/json" \
   -d '{
     "clientId": 1,
@@ -536,14 +551,19 @@ curl -X POST "http://localhost:5000/api/appointments" \
   }'
 ```
 
-#### 4. Перегляд запису разом із деталями авто (1:1) та позиціями (1:N) (`GET /api/appointments/1`):
+#### 4. Перегляд запису разом із деталями авто (1:1) та позиціями (1:N) (`GET /api/appointments/1` — Dapper Multi-Mapping):
 ```bash
-curl -X GET "http://localhost:5000/api/appointments/1"
+curl -i -X GET "http://localhost:5188/api/appointments/1"
 ```
 
-#### 5. Зміна статусу запису (`PATCH /api/appointments/1/status`):
+#### 5. Пагінована вибірка записів клієнта з фільтром за статусом (`GET /api/appointments/client/1`):
 ```bash
-curl -X PATCH "http://localhost:5000/api/appointments/1/status" \
+curl -i -X GET "http://localhost:5188/api/appointments/client/1?status=Booked&pageNumber=1&pageSize=10"
+```
+
+#### 6. Допустима зміна статусу запису (`PATCH /api/appointments/1/status` — `Booked -> CarReceived`, `204 NoContent`):
+```bash
+curl -i -X PATCH "http://localhost:5188/api/appointments/1/status" \
   -H "Content-Type: application/json" \
   -d '{
     "newStatus": "CarReceived",
@@ -551,9 +571,9 @@ curl -X PATCH "http://localhost:5000/api/appointments/1/status" \
   }'
 ```
 
-#### 6. Реєстрація оплати (`POST /api/appointments/1/payments`):
+#### 7. Реєстрація оплати (`POST /api/appointments/1/payments` — `204 NoContent`):
 ```bash
-curl -X POST "http://localhost:5000/api/appointments/1/payments" \
+curl -i -X POST "http://localhost:5188/api/appointments/1/payments" \
   -H "Content-Type: application/json" \
   -d '{
     "amount": 1500.00,
@@ -561,26 +581,62 @@ curl -X POST "http://localhost:5000/api/appointments/1/payments" \
   }'
 ```
 
-#### 7. Видача авто клієнту (`POST /api/appointments/1/deliver`):
+#### 8. Видача авто клієнту (`POST /api/appointments/1/deliver` — `204 NoContent`):
 ```bash
-curl -X POST "http://localhost:5000/api/appointments/1/deliver?changedBy=admin"
+curl -i -X POST "http://localhost:5188/api/appointments/1/deliver?changedBy=admin"
 ```
 
-#### 8. Приклад помилки бізнес-логіки у форматі RFC 7807 `ProblemDetails` (`409 Conflict`):
-Спроба перевести запис зі статусу `Booked` одразу в `Delivered`:
+#### 9. Запит неіснуючого запису (`GET /api/appointments/9999` $\rightarrow$ `404 Not Found` у форматі RFC 7807 `ProblemDetails` із `traceId`):
+```bash
+curl -i -X GET "http://localhost:5188/api/appointments/9999"
+```
+Відповідь:
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+  "title": "Ресурс не знайдено (Not Found)",
+  "status": 404,
+  "detail": "Запис з ID #9999 не знайдено.",
+  "instance": "/api/appointments/9999",
+  "traceId": "00-7a1c8e4d9f12b3456789abcdef012345-89abcdef01234567-00"
+}
+```
+
+#### 10. Недопустимий перехід статусу (`PATCH /api/appointments/1/status` $\rightarrow$ `409 Conflict` у форматі RFC 7807 `ProblemDetails`):
+Спроба перевести запис зі статусу `InProgress` (або `Booked`) одразу в `Delivered`:
+```bash
+curl -i -X PATCH "http://localhost:5188/api/appointments/1/status" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "newStatus": "Delivered",
+    "changedBy": "admin"
+  }'
+```
+Відповідь:
 ```json
 {
   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.8",
   "title": "Конфлікт бізнес-логіки або стану (Business Conflict)",
   "status": 409,
   "detail": "Недопустимий перехід статусу для запису #1: з [Booked] у [Delivered].",
-  "instance": "/api/appointments/1/status"
+  "instance": "/api/appointments/1/status",
+  "traceId": "00-9b2d4f6a1c3e57890123456789abcdef-123456789abcdef0-00"
 }
 ```
 
 ---
 
-### 10.4. Контрольні питання до Практичного заняття №02
+### 10.4. Місце для знімків екрана (Swagger UI та .NET Aspire Dashboard)
+
+> **Знімок 1 — Інтерфейс Swagger UI (`Bookings.Api`):**
+> `<!-- Вставте скріншот Swagger UI: docs/screenshots/swagger-bookings-api.png -->`
+>
+> **Знімок 2 — Панель ресурсів та розподілених трейсів у `.NET Aspire Dashboard` (`Platform.AppHost`):**
+> `<!-- Вставте скріншот Aspire Dashboard: docs/screenshots/aspire-dashboard.png -->`
+
+---
+
+### 10.5. Контрольні питання до Практичного заняття №02
 
 #### 1. У чому полягає різниця між чистим ADO.NET (`SqlCommand` + `SqlDataReader`) та мікро-ORM Dapper? Коли доцільно використовувати кожен підхід?
 **Відповідь:**

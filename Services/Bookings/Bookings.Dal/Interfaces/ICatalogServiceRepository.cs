@@ -5,7 +5,7 @@ using Bookings.Domain.Models;
 /// <summary>
 /// Репозиторій локальної репліки довідника послуг (Services) у контексті Bookings.
 /// </summary>
-public interface ICatalogServiceRepository : IGenericRepository<CatalogService, long>
+public interface ICatalogServiceRepository : IGenericRepository<CatalogService>
 {
     Task<CatalogService?> GetByServiceIdAsync(long serviceId, CancellationToken cancellationToken = default);
     Task UpsertAsync(CatalogService service, CancellationToken cancellationToken = default);

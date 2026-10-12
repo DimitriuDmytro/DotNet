@@ -6,7 +6,18 @@ using Bookings.Dal.Common;
 using Bookings.Dal.Interfaces;
 
 /// <summary>
-/// Базова реалізація IGenericRepository за допомогою Dapper.
+/// Базова реалізація IGenericRepository<T> з ключем типу long за допомогою Dapper.
+/// </summary>
+public abstract class BaseDapperRepository<T> : BaseDapperRepository<T, long>, IGenericRepository<T> where T : class
+{
+    protected BaseDapperRepository(SqlConnection connection, Func<SqlTransaction?> transactionProvider)
+        : base(connection, transactionProvider)
+    {
+    }
+}
+
+/// <summary>
+/// Базова реалізація IGenericRepository<T, TKey> за допомогою Dapper.
 /// Забезпечує стандартні CRUD-операції з автоматичною фільтрацією за IsDeleted.
 /// </summary>
 public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRepository<T, TKey> where T : class
@@ -27,7 +38,12 @@ public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRe
             var filter = HasSoftDelete ? "AND IsDeleted = 0" : string.Empty;
             var sql = $"SELECT * FROM {TableName} WHERE {KeyColumnName} = @Id {filter};";
 
-            var command = new CommandDefinition(sql, new { Id = id }, Transaction, cancellationToken: cancellationToken);
+            var command = new CommandDefinition(
+                sql,
+                new { Id = id },
+                Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
             return await Connection.QuerySingleOrDefaultAsync<T>(command);
         });
     }
@@ -39,7 +55,11 @@ public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRe
             var filter = HasSoftDelete ? "WHERE IsDeleted = 0" : string.Empty;
             var sql = $"SELECT * FROM {TableName} {filter};";
 
-            var command = new CommandDefinition(sql, transaction: Transaction, cancellationToken: cancellationToken);
+            var command = new CommandDefinition(
+                sql,
+                transaction: Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
             var results = await Connection.QueryAsync<T>(command);
             return results.AsList();
         });
@@ -62,14 +82,24 @@ public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRe
                         UpdatedBy = @UpdatedBy
                     WHERE {KeyColumnName} = @Id AND IsDeleted = 0;";
 
-                var command = new CommandDefinition(sql, new { Id = id, UpdatedBy = deletedBy ?? "system" }, Transaction, cancellationToken: cancellationToken);
+                var command = new CommandDefinition(
+                    sql,
+                    new { Id = id, UpdatedBy = deletedBy ?? "system" },
+                    Transaction,
+                    commandTimeout: DefaultCommandTimeoutSeconds,
+                    cancellationToken: cancellationToken);
                 var rows = await Connection.ExecuteAsync(command);
                 return rows > 0;
             }
             else
             {
                 var sql = $"DELETE FROM {TableName} WHERE {KeyColumnName} = @Id;";
-                var command = new CommandDefinition(sql, new { Id = id }, Transaction, cancellationToken: cancellationToken);
+                var command = new CommandDefinition(
+                    sql,
+                    new { Id = id },
+                    Transaction,
+                    commandTimeout: DefaultCommandTimeoutSeconds,
+                    cancellationToken: cancellationToken);
                 var rows = await Connection.ExecuteAsync(command);
                 return rows > 0;
             }

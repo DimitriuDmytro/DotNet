@@ -80,7 +80,14 @@ public class UnitOfWork : IUnitOfWork
 
         try
         {
-            await _transaction.RollbackAsync(cancellationToken);
+            if (_transaction.Connection != null)
+            {
+                await _transaction.RollbackAsync(cancellationToken);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Транзакція вже була відкочена на боці SQL Server (наприклад, через XACT_ABORT у збереженій процедурі)
         }
         finally
         {

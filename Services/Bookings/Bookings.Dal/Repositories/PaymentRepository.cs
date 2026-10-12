@@ -9,7 +9,7 @@ using Bookings.Domain.Models;
 /// <summary>
 /// Репозиторій платежів із використанням Dapper та збереженої процедури usp_RegisterPayment.
 /// </summary>
-public class PaymentRepository : BaseDapperRepository<Payment, long>, IPaymentRepository
+public class PaymentRepository : BaseDapperRepository<Payment>, IPaymentRepository
 {
     protected override string TableName => "dbo.Payments";
     protected override bool HasSoftDelete => false;

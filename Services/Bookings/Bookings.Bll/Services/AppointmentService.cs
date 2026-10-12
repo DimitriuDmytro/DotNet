@@ -114,61 +114,92 @@ public class AppointmentService : IAppointmentService
             throw new ValidationException(nameof(dto.NewStatus), $"Некоректний цільовий статус: '{dto.NewStatus}'.");
         }
 
-        var appointment = await _unitOfWork.Appointments.GetByIdAsync(id, cancellationToken);
-        if (appointment == null)
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
         {
-            throw new NotFoundException($"Запис з ID #{id} не знайдено.");
-        }
+            var appointment = await _unitOfWork.Appointments.GetByIdAsync(id, cancellationToken);
+            if (appointment == null)
+            {
+                throw new NotFoundException($"Запис з ID #{id} не знайдено.");
+            }
 
-        if (!AppointmentStatuses.IsAllowedTransition(appointment.Status, dto.NewStatus))
+            if (!AppointmentStatuses.IsAllowedTransition(appointment.Status, dto.NewStatus))
+            {
+                throw new BusinessConflictException(
+                    $"Недопустимий перехід статусу для запису #{id}: з [{appointment.Status}] у [{dto.NewStatus}].");
+            }
+
+            await _unitOfWork.Appointments.ChangeStatusViaProcedureAsync(
+                id, dto.NewStatus, dto.ChangedBy ?? "system", cancellationToken);
+
+            await _unitOfWork.CommitAsync(cancellationToken);
+        }
+        catch
         {
-            throw new BusinessConflictException(
-                $"Недопустимий перехід статусу для запису #{id}: з [{appointment.Status}] у [{dto.NewStatus}].");
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        await _unitOfWork.Appointments.ChangeStatusViaProcedureAsync(
-            id, dto.NewStatus, dto.ChangedBy ?? "system", cancellationToken);
     }
 
     public async Task DeliverCarAsync(long id, string? changedBy = null, CancellationToken cancellationToken = default)
     {
-        var appointment = await _unitOfWork.Appointments.GetByIdAsync(id, cancellationToken);
-        if (appointment == null)
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
         {
-            throw new NotFoundException($"Запис з ID #{id} не знайдено.");
-        }
+            var appointment = await _unitOfWork.Appointments.GetByIdAsync(id, cancellationToken);
+            if (appointment == null)
+            {
+                throw new NotFoundException($"Запис з ID #{id} не знайдено.");
+            }
 
-        if (!string.Equals(appointment.Status, AppointmentStatuses.Ready, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(appointment.Status, AppointmentStatuses.Ready, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new BusinessConflictException(
+                    $"Видача авто неможлива: поточний статус запису #{id} є [{appointment.Status}], очікується [{AppointmentStatuses.Ready}].");
+            }
+
+            var totalPaid = await _unitOfWork.Payments.GetTotalPaidForAppointmentAsync(id, cancellationToken);
+            if (totalPaid < appointment.TotalAmount)
+            {
+                throw new BusinessConflictException(
+                    $"Видача авто заборонена: запис #{id} оплачено не повністю (сплачено {totalPaid:F2} із {appointment.TotalAmount:F2}).");
+            }
+
+            await _unitOfWork.Appointments.DeliverCarViaProcedureAsync(id, changedBy ?? "system", cancellationToken);
+            await _unitOfWork.CommitAsync(cancellationToken);
+        }
+        catch
         {
-            throw new BusinessConflictException(
-                $"Видача авто неможлива: поточний статус запису #{id} є [{appointment.Status}], очікується [{AppointmentStatuses.Ready}].");
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        var totalPaid = await _unitOfWork.Payments.GetTotalPaidForAppointmentAsync(id, cancellationToken);
-        if (totalPaid < appointment.TotalAmount)
-        {
-            throw new BusinessConflictException(
-                $"Видача авто заборонена: запис #{id} оплачено не повністю (сплачено {totalPaid:F2} із {appointment.TotalAmount:F2}).");
-        }
-
-        await _unitOfWork.Appointments.DeliverCarViaProcedureAsync(id, changedBy ?? "system", cancellationToken);
     }
 
     public async Task CancelAsync(long id, string? changedBy = null, CancellationToken cancellationToken = default)
     {
-        var appointment = await _unitOfWork.Appointments.GetByIdAsync(id, cancellationToken);
-        if (appointment == null)
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
         {
-            throw new NotFoundException($"Запис з ID #{id} не знайдено.");
-        }
+            var appointment = await _unitOfWork.Appointments.GetByIdAsync(id, cancellationToken);
+            if (appointment == null)
+            {
+                throw new NotFoundException($"Запис з ID #{id} не знайдено.");
+            }
 
-        if (!AppointmentStatuses.CanBeCancelled(appointment.Status))
+            if (!AppointmentStatuses.CanBeCancelled(appointment.Status))
+            {
+                throw new BusinessConflictException(
+                    $"Скасування запису #{id} заборонено зі статусу [{appointment.Status}]. Дозволено лише з Booked або CarReceived.");
+            }
+
+            await _unitOfWork.Appointments.CancelViaProcedureAsync(id, changedBy ?? "system", cancellationToken);
+            await _unitOfWork.CommitAsync(cancellationToken);
+        }
+        catch
         {
-            throw new BusinessConflictException(
-                $"Скасування запису #{id} заборонено зі статусу [{appointment.Status}]. Дозволено лише з Booked або CarReceived.");
+            await _unitOfWork.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        await _unitOfWork.Appointments.CancelViaProcedureAsync(id, changedBy ?? "system", cancellationToken);
     }
 
     public async Task<IReadOnlyList<StatusHistoryDto>> GetStatusHistoryAsync(long id, CancellationToken cancellationToken = default)

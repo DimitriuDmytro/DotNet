@@ -10,7 +10,7 @@ using Bookings.Domain.Models;
 /// Репозиторій записів на обслуговування з використанням Dapper, Multi-mapping,
 /// Table-Valued Parameters (TVP) та викликів збережених процедур.
 /// </summary>
-public class AppointmentRepository : BaseDapperRepository<Appointment, long>, IAppointmentRepository
+public class AppointmentRepository : BaseDapperRepository<Appointment>, IAppointmentRepository
 {
     protected override string TableName => "dbo.Appointments";
 
@@ -35,7 +35,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment, long>, IA
                 entity.ScheduledAt,
                 entity.TotalAmount,
                 CreatedBy = entity.CreatedBy ?? "system"
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             return await Connection.ExecuteScalarAsync<long>(command);
         });
@@ -61,7 +61,7 @@ public class AppointmentRepository : BaseDapperRepository<Appointment, long>, IA
                 entity.Status,
                 entity.TotalAmount,
                 entity.UpdatedBy
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             var rows = await Connection.ExecuteAsync(command);
             return rows > 0;
@@ -80,16 +80,20 @@ public class AppointmentRepository : BaseDapperRepository<Appointment, long>, IA
                 LEFT JOIN dbo.AppointmentDetails d ON a.Id = d.AppointmentId
                 WHERE a.Id = @Id AND a.IsDeleted = 0;";
 
-            var command = new CommandDefinition(sqlAppointment, new { Id = id }, Transaction, cancellationToken: cancellationToken);
+            var command = new CommandDefinition(
+                sqlAppointment,
+                new { Id = id },
+                Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
+
             var appointments = (await Connection.QueryAsync<Appointment, AppointmentDetails, Appointment>(
-                command.CommandText,
+                command,
                 (app, det) =>
                 {
                     app.Details = det;
                     return app;
                 },
-                command.Parameters,
-                Transaction,
                 splitOn: "AppointmentId"
             )).AsList();
 

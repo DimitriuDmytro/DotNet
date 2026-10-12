@@ -1,12 +1,13 @@
 namespace Bookings.Api.Middleware;
 
+using System.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Bookings.Domain.Exceptions;
 
 /// <summary>
 /// Глобальний обробник винятків (IExceptionHandler), який транслює доменні винятки
-/// у стандартизовані відповіді RFC 7807 ProblemDetails.
+/// у стандартизовані відповіді RFC 7807 ProblemDetails із traceId та без витоку сирих деталей для 500.
 /// </summary>
 public class DomainExceptionHandler : IExceptionHandler
 {
@@ -56,14 +57,23 @@ public class DomainExceptionHandler : IExceptionHandler
                 statusCode, exception.Message, httpContext.Request.Path);
         }
 
+        // Приховуємо технічні деталі винятку для 500 Internal Server Error
+        var safeDetail = statusCode == StatusCodes.Status500InternalServerError
+            ? "Виникла внутрішня помилка сервера. Будь ласка, зверніться до адміністратора."
+            : exception.Message;
+
         var problemDetails = new ProblemDetails
         {
             Status = statusCode,
             Title = title,
-            Detail = exception.Message,
+            Detail = safeDetail,
             Type = typeUrl,
             Instance = httpContext.Request.Path
         };
+
+        // Обов'язкове додавання traceId у Extensions згідно зі стандартом діагностики
+        var traceId = Activity.Current?.Id ?? httpContext.TraceIdentifier;
+        problemDetails.Extensions["traceId"] = traceId;
 
         if (exception is ValidationException validationEx && validationEx.Errors.Count > 0)
         {
