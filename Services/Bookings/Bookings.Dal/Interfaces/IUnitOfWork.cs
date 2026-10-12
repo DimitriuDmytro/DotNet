@@ -9,6 +9,7 @@ public interface IUnitOfWork : IAsyncDisposable
     IClientRepository Clients { get; }
     IAppointmentRepository Appointments { get; }
     IPaymentRepository Payments { get; }
+    ICatalogServiceRepository Services { get; }
     ICatalogServiceRepository CatalogServices { get; }
 
     Task BeginTransactionAsync(CancellationToken cancellationToken = default);

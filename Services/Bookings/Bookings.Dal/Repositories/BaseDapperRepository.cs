@@ -6,21 +6,10 @@ using Bookings.Dal.Common;
 using Bookings.Dal.Interfaces;
 
 /// <summary>
-/// Базова реалізація IGenericRepository<T> з ключем типу long за допомогою Dapper.
+/// Базова реалізація IGenericRepository<T> за допомогою мікро-ORM Dapper.
+/// Забезпечує стандартні CRUD-операції з автоматичною фільтрацією м'яко видалених записів (IsDeleted = 0).
 /// </summary>
-public abstract class BaseDapperRepository<T> : BaseDapperRepository<T, long>, IGenericRepository<T> where T : class
-{
-    protected BaseDapperRepository(SqlConnection connection, Func<SqlTransaction?> transactionProvider)
-        : base(connection, transactionProvider)
-    {
-    }
-}
-
-/// <summary>
-/// Базова реалізація IGenericRepository<T, TKey> за допомогою Dapper.
-/// Забезпечує стандартні CRUD-операції з автоматичною фільтрацією за IsDeleted.
-/// </summary>
-public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRepository<T, TKey> where T : class
+public abstract class BaseDapperRepository<T> : RepositoryBase, IGenericRepository<T> where T : class
 {
     protected abstract string TableName { get; }
     protected virtual string KeyColumnName => "Id";
@@ -31,7 +20,7 @@ public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRe
     {
     }
 
-    public virtual async Task<T?> GetByIdAsync(TKey id, CancellationToken cancellationToken = default)
+    public virtual async Task<T?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         return await ExecuteAsync(async () =>
         {
@@ -65,11 +54,11 @@ public abstract class BaseDapperRepository<T, TKey> : RepositoryBase, IGenericRe
         });
     }
 
-    public abstract Task<TKey> AddAsync(T entity, CancellationToken cancellationToken = default);
+    public abstract Task<long> AddAsync(T entity, CancellationToken cancellationToken = default);
 
     public abstract Task<bool> UpdateAsync(T entity, CancellationToken cancellationToken = default);
 
-    public virtual async Task<bool> DeleteAsync(TKey id, string? deletedBy = null, CancellationToken cancellationToken = default)
+    public virtual async Task<bool> DeleteAsync(long id, string? deletedBy = null, CancellationToken cancellationToken = default)
     {
         return await ExecuteAsync(async () =>
         {

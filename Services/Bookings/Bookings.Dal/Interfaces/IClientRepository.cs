@@ -3,8 +3,12 @@ namespace Bookings.Dal.Interfaces;
 using Bookings.Domain.Models;
 
 /// <summary>
-/// Репозиторій клієнтів (реалізований виключно на чистому ADO.NET без Dapper).
-/// Не успадковує IGenericRepository для демонстрації архітектурної різниці.
+/// Репозиторій клієнтів, реалізований виключно на чистому ADO.NET (SqlCommand, SqlParameter з SqlDbType, SqlDataReader).
+/// СВІДОМО НЕ УСПАДКОВУЄ IGenericRepository<Client>, оскільки:
+/// 1) IGenericRepository<T> розрахований на конвенційну реалізацію через мікро-ORM Dapper (BaseDapperRepository<T>),
+///    тоді як ClientRepository демонструє низькорівневу роботу з драйвером БД вручну без ORM;
+/// 2) Вибірка клієнтів вимагає обов'язкової пагінації GetAllAsync(pageNumber, pageSize) та пошуку за унікальним Email.
+/// Детальніше обґрунтовано у docs/decisions.md (ADR-07).
 /// </summary>
 public interface IClientRepository
 {

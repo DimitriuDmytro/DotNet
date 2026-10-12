@@ -35,7 +35,7 @@ public class PaymentServiceTests
     }
 
     [Fact]
-    public async Task RegisterPaymentAsync_ValidPayment_ShouldCommitTransaction()
+    public async Task RegisterPaymentAsync_ValidPayment_ShouldCommitTransactionAndReturnPaymentDto()
     {
         // Arrange
         _appointmentRepoMock.GetByIdAsync(10, Arg.Any<CancellationToken>())
@@ -44,12 +44,18 @@ public class PaymentServiceTests
         _paymentRepoMock.GetTotalPaidForAppointmentAsync(10, Arg.Any<CancellationToken>())
             .Returns(500m);
 
+        _paymentRepoMock.RegisterPaymentViaProcedureAsync(10, 1500m, "Card", Arg.Any<CancellationToken>())
+            .Returns(new Payment { Id = 77L, AppointmentId = 10, Amount = 1500m, Method = "Card", PaidAt = DateTime.UtcNow });
+
         var dto = new RegisterPaymentDto { Amount = 1500m, Method = "Card" };
 
         // Act
-        await _service.RegisterPaymentAsync(10, dto);
+        var result = await _service.RegisterPaymentAsync(10, dto);
 
         // Assert
+        Assert.NotNull(result);
+        Assert.Equal(77L, result.Id);
+        Assert.Equal(1500m, result.Amount);
         await _uowMock.Received(1).BeginTransactionAsync(Arg.Any<CancellationToken>());
         await _paymentRepoMock.Received(1).RegisterPaymentViaProcedureAsync(10, 1500m, "Card", Arg.Any<CancellationToken>());
         await _uowMock.Received(1).CommitAsync(Arg.Any<CancellationToken>());

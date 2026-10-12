@@ -33,7 +33,7 @@ public class PaymentRepository : BaseDapperRepository<Payment>, IPaymentReposito
                 entity.AppointmentId,
                 entity.Amount,
                 entity.Method
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             return await Connection.ExecuteScalarAsync<long>(command);
         });
@@ -54,7 +54,7 @@ public class PaymentRepository : BaseDapperRepository<Payment>, IPaymentReposito
                 entity.Id,
                 entity.Amount,
                 entity.Method
-            }, Transaction, cancellationToken: cancellationToken);
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
 
             var rows = await Connection.ExecuteAsync(command);
             return rows > 0;
@@ -71,15 +71,24 @@ public class PaymentRepository : BaseDapperRepository<Payment>, IPaymentReposito
                 WHERE AppointmentId = @AppointmentId
                 ORDER BY PaidAt ASC, Id ASC;";
 
-            var command = new CommandDefinition(sql, new { AppointmentId = appointmentId }, Transaction, cancellationToken: cancellationToken);
+            var command = new CommandDefinition(
+                sql,
+                new { AppointmentId = appointmentId },
+                Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
             var results = await Connection.QueryAsync<Payment>(command);
             return results.AsList();
         });
     }
 
-    public async Task RegisterPaymentViaProcedureAsync(long appointmentId, decimal amount, string method, CancellationToken cancellationToken = default)
+    public async Task<Payment> RegisterPaymentViaProcedureAsync(
+        long appointmentId,
+        decimal amount,
+        string method,
+        CancellationToken cancellationToken = default)
     {
-        await ExecuteAsync(async () =>
+        return await ExecuteAsync(async () =>
         {
             var parameters = new DynamicParameters();
             parameters.Add("@AppointmentId", appointmentId, DbType.Int64);
@@ -90,10 +99,18 @@ public class PaymentRepository : BaseDapperRepository<Payment>, IPaymentReposito
                 "dbo.usp_RegisterPayment",
                 parameters,
                 Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken);
 
-            await Connection.ExecuteAsync(command);
+            var created = await Connection.QueryFirstOrDefaultAsync<Payment>(command);
+            return created ?? new Payment
+            {
+                AppointmentId = appointmentId,
+                Amount = amount,
+                Method = method,
+                PaidAt = DateTime.UtcNow
+            };
         });
     }
 
@@ -106,7 +123,12 @@ public class PaymentRepository : BaseDapperRepository<Payment>, IPaymentReposito
                 FROM dbo.Payments
                 WHERE AppointmentId = @AppointmentId;";
 
-            var command = new CommandDefinition(sql, new { AppointmentId = appointmentId }, Transaction, cancellationToken: cancellationToken);
+            var command = new CommandDefinition(
+                sql,
+                new { AppointmentId = appointmentId },
+                Transaction,
+                commandTimeout: DefaultCommandTimeoutSeconds,
+                cancellationToken: cancellationToken);
             return await Connection.ExecuteScalarAsync<decimal>(command);
         });
     }

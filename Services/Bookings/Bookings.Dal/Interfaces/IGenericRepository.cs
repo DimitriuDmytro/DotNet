@@ -1,24 +1,17 @@
 namespace Bookings.Dal.Interfaces;
 
 /// <summary>
-/// Узагальнений інтерфейс репозиторію для базових CRUD-операцій з ключем типу long.
+/// Узагальнений інтерфейс репозиторію для базових CRUD-операцій над доменними сутностями.
+/// Конкретні Dapper-інтерфейси (IAppointmentRepository, IPaymentRepository, ICatalogServiceRepository)
+/// успадковують цей контракт і додають виключно специфічні запити та процедури.
 /// </summary>
 /// <typeparam name="T">Тип доменної сутності</typeparam>
-public interface IGenericRepository<T> : IGenericRepository<T, long> where T : class
-{
-}
-
-/// <summary>
-/// Узагальнений інтерфейс репозиторію для базових CRUD-операцій із довільним типом ключа.
-/// </summary>
-/// <typeparam name="T">Тип сутності</typeparam>
-/// <typeparam name="TKey">Тип первинного ключа</typeparam>
-public interface IGenericRepository<T, TKey> where T : class
+public interface IGenericRepository<T> where T : class
 {
     /// <summary>
     /// Отримати сутність за ідентифікатором (з урахуванням IsDeleted = 0).
     /// </summary>
-    Task<T?> GetByIdAsync(TKey id, CancellationToken cancellationToken = default);
+    Task<T?> GetByIdAsync(long id, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Отримати всі активні сутності.
@@ -28,7 +21,7 @@ public interface IGenericRepository<T, TKey> where T : class
     /// <summary>
     /// Додати новий запис та повернути його ідентифікатор.
     /// </summary>
-    Task<TKey> AddAsync(T entity, CancellationToken cancellationToken = default);
+    Task<long> AddAsync(T entity, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Оновити існуючий запис.
@@ -38,5 +31,5 @@ public interface IGenericRepository<T, TKey> where T : class
     /// <summary>
     /// М'яке видалення запису (встановлення IsDeleted = 1).
     /// </summary>
-    Task<bool> DeleteAsync(TKey id, string? deletedBy = null, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(long id, string? deletedBy = null, CancellationToken cancellationToken = default);
 }

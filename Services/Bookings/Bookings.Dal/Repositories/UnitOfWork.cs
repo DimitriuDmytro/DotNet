@@ -41,8 +41,10 @@ public class UnitOfWork : IUnitOfWork
     public IPaymentRepository Payments =>
         _payments ??= new PaymentRepository(_connection, () => _transaction);
 
-    public ICatalogServiceRepository CatalogServices =>
+    public ICatalogServiceRepository Services =>
         _catalogServices ??= new CatalogServiceRepository(_connection, () => _transaction);
+
+    public ICatalogServiceRepository CatalogServices => Services;
 
     public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
     {

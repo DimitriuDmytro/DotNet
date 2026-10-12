@@ -22,7 +22,7 @@ public class ClientsController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType(typeof(PagedResult<ClientDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(
+    public async Task<ActionResult<PagedResult<ClientDto>>> GetAll(
         [FromQuery] int pageNumber = 1,
         [FromQuery] int pageSize = 50,
         CancellationToken cancellationToken = default)
@@ -34,7 +34,7 @@ public class ClientsController : ControllerBase
     [HttpGet("{id:long}")]
     [ProducesResponseType(typeof(ClientDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetById(long id, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ClientDto>> GetById(long id, CancellationToken cancellationToken = default)
     {
         var client = await _clientService.GetByIdAsync(id, cancellationToken);
         if (client == null)
@@ -48,7 +48,7 @@ public class ClientsController : ControllerBase
     [HttpGet("by-email")]
     [ProducesResponseType(typeof(ClientDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetByEmail([FromQuery] string email, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ClientDto>> GetByEmail([FromQuery] string email, CancellationToken cancellationToken = default)
     {
         var client = await _clientService.GetByEmailAsync(email, cancellationToken);
         if (client == null)
@@ -61,9 +61,9 @@ public class ClientsController : ControllerBase
 
     [HttpPost]
     [ProducesResponseType(typeof(ClientDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Create([FromBody] CreateClientDto dto, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ClientDto>> Create([FromBody] CreateClientDto dto, CancellationToken cancellationToken = default)
     {
         var created = await _clientService.CreateAsync(dto, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
@@ -71,10 +71,10 @@ public class ClientsController : ControllerBase
 
     [HttpPut("{id:long}")]
     [ProducesResponseType(typeof(ClientDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Update(long id, [FromBody] UpdateClientDto dto, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ClientDto>> Update(long id, [FromBody] UpdateClientDto dto, CancellationToken cancellationToken = default)
     {
         var updated = await _clientService.UpdateAsync(id, dto, cancellationToken);
         return Ok(updated);
