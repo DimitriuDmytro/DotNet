@@ -1,6 +1,116 @@
-@Catalog.Api_HostAddress = http://localhost:5030
+@baseUrl = http://localhost:5242
 
-GET {{Catalog.Api_HostAddress}}/weatherforecast/
+### 1. Отримати всі категорії
+GET {{baseUrl}}/api/categories
 Accept: application/json
 
-###
+### 2. Отримати категорію за ID з послугами
+GET {{baseUrl}}/api/categories/1
+Accept: application/json
+
+### 3. Створити категорію (201 Created)
+POST {{baseUrl}}/api/categories
+Content-Type: application/json
+
+{
+  "name": "Антигравійна плівка",
+  "description": "Повний та частковий захист кузова поліуретановою плівкою"
+}
+
+### 4. Отримати послуги з пагінацією та сортуванням (перевірка заголовків X-Total-Count, X-Page, X-Page-Size, X-Total-Pages)
+GET {{baseUrl}}/api/services?page=1&pageSize=5&sortBy=price&sortOrder=asc
+Accept: application/json
+
+### 5. Фільтрація послуг за категорією та пошуковим словом
+GET {{baseUrl}}/api/services?categoryId=1&search=Полірування
+Accept: application/json
+
+### 6. Отримати послугу за ID (Eager Loading - 1 SQL-запит з Include/ThenInclude)
+GET {{baseUrl}}/api/services/1
+Accept: application/json
+
+### 7. Отримати послугу за ID (Explicit Loading - 2+ SQL-запити через Entry.Reference/Collection.LoadAsync)
+GET {{baseUrl}}/api/services/1/explicit
+Accept: application/json
+
+### 8. Отримати послуги через Ardalis.Specification (гарантія >= 12 міс.)
+GET {{baseUrl}}/api/services/by-warranty?minWarrantyMonths=12
+Accept: application/json
+
+### 9. Створити нову послугу (201 Created з заголовком Location)
+POST {{baseUrl}}/api/services
+Content-Type: application/json
+
+{
+  "categoryId": 1,
+  "name": "Нанокераміка 9H Ceramic Pro",
+  "description": "Нанесення преміального 3-шарового керамічного захисту",
+  "price": 12000.00,
+  "durationMin": 480,
+  "spec": {
+    "warrantyMonths": 24,
+    "equipment": "Rupes BigFoot, Polishing pads, IR dryer",
+    "materials": "Ceramic Pro 9H, Top Coat",
+    "requirements": "Попереднє двокрокове відновлювальне полірування кузова"
+  }
+}
+
+### 10. Перевірка валідації FluentValidation (400 Bad Request + RFC 7807 ProblemDetails)
+POST {{baseUrl}}/api/services
+Content-Type: application/json
+
+{
+  "categoryId": 1,
+  "name": "",
+  "price": -100,
+  "durationMin": 0
+}
+
+### 11. Оновити ціну послуги (PATCH)
+PATCH {{baseUrl}}/api/services/1/price
+Content-Type: application/json
+
+{
+  "newPrice": 5200.00
+}
+
+### 12. Додати зображення до послуги
+POST {{baseUrl}}/api/services/1/images
+Content-Type: application/json
+
+{
+  "imageUrl": "https://storage.detailing-studio.ua/services/ceramic-test.jpg",
+  "isMain": false
+}
+
+### 13. Оновити специфікацію послуги
+PUT {{baseUrl}}/api/services/1/spec
+Content-Type: application/json
+
+{
+  "warrantyMonths": 36,
+  "equipment": "Rupes LHR21 Mark III",
+  "materials": "Gyeon Q2 Mohs Plus",
+  "requirements": "Очищення глиною та знежирення кузова"
+}
+
+### 14. Отримати всі пакети послуг
+GET {{baseUrl}}/api/packages
+Accept: application/json
+
+### 15. Отримати пакет за ID
+GET {{baseUrl}}/api/packages/1
+Accept: application/json
+
+### 16. Отримати нещодавно додані послуги пакету (LINQ-запит до проміжної сутності M:N за AddedAt)
+GET {{baseUrl}}/api/packages/1/recently-added-services?since=2024-01-01
+Accept: application/json
+
+### 17. Додати послугу до пакету
+POST {{baseUrl}}/api/packages/1/services
+Content-Type: application/json
+
+{
+  "serviceId": 5,
+  "sortOrder": 10
+}

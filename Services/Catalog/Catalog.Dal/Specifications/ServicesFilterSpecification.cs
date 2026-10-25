@@ -25,8 +25,8 @@ public class ServicesFilterSpecification : Specification<Service>
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            Query.Where(s => s.Name.ToLower().Contains(term));
+            var term = search.Trim();
+            Query.Where(s => s.Name.Contains(term));
         }
 
         if (categoryId.HasValue && categoryId.Value > 0)
@@ -44,31 +44,31 @@ public class ServicesFilterSpecification : Specification<Service>
             Query.Where(s => s.Price <= maxPrice.Value);
         }
 
-        // Безпечне сортування виключно з білого списку полів (Критерій 10)
+        // Безпечне сортування виключно з білого списку полів із детермінованим вторинним ключем (Критерій 10)
         var isDescending = string.Equals(sortDir, "desc", StringComparison.OrdinalIgnoreCase);
 
         switch (sortBy?.Trim().ToLowerInvariant())
         {
             case "price":
-                if (isDescending) Query.OrderByDescending(s => s.Price);
-                else Query.OrderBy(s => s.Price);
+                if (isDescending) Query.OrderByDescending(s => s.Price).ThenBy(s => s.Id);
+                else Query.OrderBy(s => s.Price).ThenBy(s => s.Id);
                 break;
 
             case "duration":
             case "durationmin":
-                if (isDescending) Query.OrderByDescending(s => s.DurationMin);
-                else Query.OrderBy(s => s.DurationMin);
+                if (isDescending) Query.OrderByDescending(s => s.DurationMin).ThenBy(s => s.Id);
+                else Query.OrderBy(s => s.DurationMin).ThenBy(s => s.Id);
                 break;
 
             case "createdat":
-                if (isDescending) Query.OrderByDescending(s => s.CreatedAt);
-                else Query.OrderBy(s => s.CreatedAt);
+                if (isDescending) Query.OrderByDescending(s => s.CreatedAt).ThenBy(s => s.Id);
+                else Query.OrderBy(s => s.CreatedAt).ThenBy(s => s.Id);
                 break;
 
             case "name":
             default:
-                if (isDescending) Query.OrderByDescending(s => s.Name);
-                else Query.OrderBy(s => s.Name);
+                if (isDescending) Query.OrderByDescending(s => s.Name).ThenBy(s => s.Id);
+                else Query.OrderBy(s => s.Name).ThenBy(s => s.Id);
                 break;
         }
 

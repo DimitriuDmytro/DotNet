@@ -16,8 +16,8 @@ public class ServicesFilterCountSpecification : Specification<Service>
     {
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            Query.Where(s => s.Name.ToLower().Contains(term));
+            var term = search.Trim();
+            Query.Where(s => s.Name.Contains(term));
         }
 
         if (categoryId.HasValue && categoryId.Value > 0)

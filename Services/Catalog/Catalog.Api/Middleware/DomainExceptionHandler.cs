@@ -48,6 +48,11 @@ public class DomainExceptionHandler : IExceptionHandler
                 "Порушення доменного бізнес-правила (Domain Conflict)",
                 "https://tools.ietf.org/html/rfc7231#section-6.5.8"),
 
+            Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException => (
+                StatusCodes.Status409Conflict,
+                "Конфлікт паралельного оновлення (Concurrency Conflict)",
+                "https://tools.ietf.org/html/rfc7231#section-6.5.8"),
+
             _ => (
                 StatusCodes.Status500InternalServerError,
                 "Внутрішня помилка сервера (Internal Server Error)",

@@ -17,8 +17,8 @@ public class PackagesFilterSpecification : Specification<Package>
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            Query.Where(p => p.Name.ToLower().Contains(term));
+            var term = search.Trim();
+            Query.Where(p => p.Name.Contains(term));
         }
 
         if (minPrice.HasValue && minPrice.Value > 0)
@@ -31,7 +31,7 @@ public class PackagesFilterSpecification : Specification<Package>
             Query.Where(p => p.Price <= maxPrice.Value);
         }
 
-        Query.OrderBy(p => p.Price);
+        Query.OrderBy(p => p.Price).ThenBy(p => p.Id);
 
         var clampedPage = Math.Max(1, page);
         var clampedPageSize = Math.Clamp(pageSize, 1, 100);
@@ -48,8 +48,8 @@ public class PackagesFilterCountSpecification : Specification<Package>
     {
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            Query.Where(p => p.Name.ToLower().Contains(term));
+            var term = search.Trim();
+            Query.Where(p => p.Name.Contains(term));
         }
 
         if (minPrice.HasValue && minPrice.Value > 0)
