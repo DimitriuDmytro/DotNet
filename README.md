@@ -715,3 +715,289 @@ curl -i -X GET "$BASE_URL/api/appointments/client/1?status=Booked&pageNumber=1&p
 **Відповідь:** Перевірка та перехоплення винятків у кожному методі контролера порушує принцип DRY і захаращує презентаційний шар. Замість цього реалізовано двоступеневий конвеєр обробки помилок:
 1. У шарі DAL (`RepositoryBase.TranslateSqlException`) специфічні для СУБД винятки `SqlException` (коди `50001`..`50005`, `2601`, `2627`, `547`) перетворюються на технологічно нейтральні доменні винятки (`NotFoundException`, `BusinessConflictException`, `ValidationException`).
 2. У шарі API глобальний сервіс `DomainExceptionHandler : IExceptionHandler` перехоплює ці винятки та серіалізує їх у стандартний формат **RFC 7807 `ProblemDetails`** (`Content-Type: application/problem+json`) із відповідними HTTP-кодами (`400 Bad Request`, `404 Not Found`, `409 Conflict`, `500 Internal Server Error`).
+
+---
+
+## 11. Лабораторна робота №03: Тришарова архітектура на базі EF Core Code-First, Ardalis.Specification та .NET Aspire (Контекст «Каталог послуг»)
+
+У межах Лабораторної роботи №03 реалізовано незалежний мікросервіс **Catalog** (Каталог послуг та пакетів детейлінг-студії, Проєкт №2) із використанням сучасного підходу **Entity Framework Core 9.0 Code-First**.
+
+### 11.1. Архітектура та призначення шарів (`Services/Catalog/`)
+
+```text
+Services/Catalog/
+├── Catalog.Domain/     ★ Доменний шар: сутності з інкапсульованими бізнес-правилами (DDD-lite)
+│   ├── Entities/       ★ ServiceCategory, Service, ServiceSpec, ServiceImage, Package, PackageService
+│   └── Exceptions/     ★ DomainException, EntityNotFoundException, ConflictException, ValidationException
+├── Catalog.Dal/        ★ Шар доступу до даних (EF Core 9.0.2 + Ardalis.Specification)
+│   ├── Configurations/ ★ Окремі IEntityTypeConfiguration<T> для кожної сутності (fluent mapping, check constraints)
+│   ├── Migrations/     ★ Початкова міграція InitialCreate та знімок моделі DbContextModelSnapshot
+│   ├── Repositories/   ★ GenericRepository<T> зі SpecificationEvaluator, ServiceRepository, PackageRepository
+│   ├── Specifications/ ★ Ardalis-специфікації (ServicesFilterSpecification, ServicesWithCategoryAndSpecSpecification)
+│   ├── Seeding/        ★ Idempotent DbInitializer.SeedAsync для заповнення початкових даних
+│   └── CatalogDbContext.cs ★ Головний контекст із реєстрацією конфігурацій через ApplyConfigurationsFromAssembly
+├── Catalog.Bll/        ★ Шар бізнес-логіки
+│   ├── DTOs/           ★ Незмінні DTO у вигляді record (ServiceDto, ServiceDetailDto, PackageDto, PagedResult<T>)
+│   ├── Interfaces/     ★ Інтерфейси сервісів (IServiceService, IPackageService, IServiceCategoryService)
+│   ├── Services/       ★ Реалізація бізнес-сценаріїв з координацією через IUnitOfWork
+│   ├── Mapping/        ★ AutoMapper профіль (CatalogProfile)
+│   └── Validators/     ★ FluentValidation валідатори (CreateServiceDtoValidator, UpdatePriceDtoValidator тощо)
+├── Catalog.Api/        ★ Презентаційний шар (ASP.NET Core Web API)
+│   ├── Controllers/    ★ Асинхронні контролери (ServicesController, PackagesController, CategoriesController)
+│   ├── Middleware/     ★ CorrelationIdMiddleware (X-Correlation-Id) та DomainExceptionHandler (RFC 7807)
+│   ├── Program.cs      ★ Реєстрація DI, конфігурація Serilog SQL логування, автоміграція та сідінг
+│   ├── Catalog.http    ★ Сценарії викликів усіх ендпоінтів у форматі VS Code / JetBrains HTTP Client
+│   └── Dockerfile      ★ Мультистейдж Dockerfile збірки та публікації контейнера
+└── Catalog.Tests/      ★ Модульні та інтеграційні тести
+    ├── Domain/         ★ Тести інваріантів конструкторів та методів мутацій сутностей
+    ├── Specifications/ ★ Тести фільтрації, сортування та специфікацій на базі InMemory DbContext
+    ├── Validators/     ★ Тести валідації вхідних моделей через FluentValidation
+    ├── Services/       ★ Тести бізнес-логіки BLL із макетованим IUnitOfWork (NSubstitute)
+    └── ControllersIntegrationTests.cs ★ Інтеграційні тести API через WebApplicationFactory<Program>
+```
+
+---
+
+### 11.2. Реляційна модель сутностей та інваріанти
+
+1. **Зв'язок 1:1 (`Services` $\leftrightarrow$ `ServiceSpecs`):**
+   - Первинний ключ `ServiceSpec.ServiceId` є одночасно зовнішнім ключем (`Shared Primary Key`).
+   - Навігаційні властивості: `Service.Spec` та `ServiceSpec.Service`.
+   - Каскадне видалення: при видаленні послуги специфікація видаляється автоматично (`DeleteBehavior.Cascade`).
+2. **Зв'язок 1:N (`Categories` $\rightarrow$ `Services` та `Services` $\rightarrow$ `ServiceImages`):**
+   - Унікальний фільтрований індекс `UX_ServiceImages_ServiceId_MainOnly` `WHERE IsMain = 1` гарантує на рівні СУБД наявність не більше одного головного фото для кожної послуги.
+3. **Зв'язок M:N (`Packages` $\leftrightarrow$ `Services` через `PackageServices`):**
+   - Явна проміжна сутність зі складеним первинним ключем `(PackageId, ServiceId)`.
+   - Власні атрибути: `SortOrder INT` (з CHECK `SortOrder >= 1`) та `AddedAt DATETIME2` (зі значенням за замовчуванням `SYSUTCDATETIME()`).
+4. **Інкапсуляція сутностей (Критерій 1):**
+   - Усі сетери властивостей мають модифікатор `private set`.
+   - Конструктори без параметрів приватні/захищені для EF Core.
+   - Публічні конструктори перевіряють усі бізнес-інваріанти (ціна > 0, тривалість > 0, непустий Name).
+   - Колекції надаються виключно через `IReadOnlyCollection<T>`.
+   - Мутація стану сутностей можлива лише через виклики методів (`UpdatePrice`, `AttachSpec`, `AddImage`, `AddService`, `RemoveService`, `SoftDelete`, `Restore`).
+5. **Soft Delete та Concurrency:**
+   - Прапорець `IsDeleted BIT` з глобальним фільтром `HasQueryFilter(e => !e.IsDeleted)` для послуг та пакетів.
+   - Оптимістичне блокування реалізовано через сурогатний токен версії `byte[] RowVersion` з `IsRowVersion()`.
+
+---
+
+### 11.3. Конфігурація підключень та ліцензії AutoMapper
+
+#### Рядок підключення до БД CatalogDb:
+За замовчуванням застосунок налаштовано на роботу з LocalDB:
+`Server=(localdb)\mssqllocaldb;Database=DetailingCatalog;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True`
+
+Перевизначення для віддаленого сервера або Docker:
+- Через змінну оточення:
+  ```powershell
+  $env:ConnectionStrings__CatalogDb = "Server=localhost,1433;Database=DetailingCatalog;User Id=sa;Password=<ВашПароль>;TrustServerCertificate=True;MultipleActiveResultSets=true;"
+  ```
+- Через .NET User Secrets:
+  ```powershell
+  dotnet user-secrets set "ConnectionStrings:CatalogDb" "Server=localhost,1433;Database=DetailingCatalog;User Id=sa;Password=<ВашПароль>;TrustServerCertificate=True;MultipleActiveResultSets=true;" --project Services/Catalog/Catalog.Api
+  ```
+
+#### Ключ ліцензії AutoMapper (Community / Commercial):
+У версії AutoMapper 16+ за потреби можна вказати ключ ліцензії через конфігурацію:
+```powershell
+dotnet user-secrets set "AutoMapper:LicenseKey" "<YOUR_LICENSE_KEY>" --project Services/Catalog/Catalog.Api
+```
+*(Примітка: для навчальних та некомерційних цілей бібліотека повноцінно працює і без задання ключа, сигналізуючи лише інформаційним попередженням у журналі).*
+
+---
+
+### 11.4. Міграції та ідемпотентний сідінг
+
+1. **Застосування міграції через `dotnet ef`:**
+   ```powershell
+   dotnet ef database update --project Services/Catalog/Catalog.Dal --startup-project Services/Catalog/Catalog.Api
+   ```
+2. **Генерація ідемпотентного SQL-скрипта міграції:**
+   ```powershell
+   dotnet ef migrations script --idempotent --project Services/Catalog/Catalog.Dal --startup-project Services/Catalog/Catalog.Api -o db/p2/ef-migration.sql
+   ```
+3. **Автоматична міграція та сідінг при запуску застосунку:**
+   У `Program.cs` налаштовано виклик `await db.Database.MigrateAsync()` та `await DbInitializer.SeedAsync(db)`. Сідінг перевіряє `AnyAsync()` і безпечно додає тестовий набір даних (4 категорії через `HasData`, 12 послуг, 12 специфікацій, 3 пакети послуг та 7 фотографій).
+
+---
+
+### 11.5. Спостережуваність: Порівняння Eager vs Explicit Loading у логах Serilog
+
+У `Catalog.Api/Program.cs` налаштовано фільтр логування:
+```csharp
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Information)
+    ...
+```
+
+#### 1. Eager Loading (`GET /api/services/{id}`):
+- Метод: `_unitOfWork.Services.GetWithDetailsAsync(id)`
+- Реалізація: `_context.Services.Include(s => s.Category).Include(s => s.Spec).Include(s => s.Images).Include(s => s.PackageServices).ThenInclude(ps => ps.Package)`
+- **Результат у логах:** рівно **1 оптимізований SQL-запит** із `LEFT JOIN` до таблиць `ServiceCategories`, `ServiceSpecs`, `ServiceImages`, `PackageServices`, `Packages`.
+
+#### 2. Explicit Loading (`GET /api/services/{id}/explicit`):
+- Метод: `_unitOfWork.Services.GetWithExplicitDetailsAsync(id)`
+- Реалізація:
+  1. `await _context.Services.Include(s => s.Category).FirstOrDefaultAsync(...)` (1-й SQL-запит: послуга + категорія)
+  2. `await _context.Entry(service).Reference(s => s.Spec).LoadAsync(...)` (2-й SQL-запит: специфікація)
+  3. `await _context.Entry(service).Collection(s => s.Images).LoadAsync(...)` (3-й SQL-запит: зображення)
+  4. `await _context.Entry(service).Collection(s => s.PackageServices).Query().Include(ps => ps.Package).LoadAsync(...)` (4-й SQL-запит: пакети)
+- **Результат у логах:** рівно **4 послідовні SQL-запити**, що наочно демонструє механіку відкладеного довантаження пов'язаних сутностей без лінивого проксі.
+
+---
+
+### 11.6. Контракт пагінації, сортування та фільтрації (Критерій 10)
+
+Запит:
+```http
+GET /api/services?page=1&pageSize=5&sortBy=price&sortOrder=asc&categoryId=1&search=Полірування
+```
+
+Відповідь повертає колекцію елементів у тілі:
+```json
+[
+  {
+    "id": 1,
+    "categoryId": 1,
+    "categoryName": "Детейлінг кузова та полірування",
+    "name": "Абразивне відновлювальне полірування кузова",
+    "price": 6500.00,
+    "durationMin": 480,
+    "mainImageUrl": "https://storage.detailing-studio.ua/services/body-polishing-1.jpg",
+    "createdAt": "2024-01-15T09:00:00Z"
+  }
+]
+```
+
+І обов'язкові метадані пагінації у стандартних HTTP-заголовках відповіді:
+- `X-Total-Count`: 1
+- `X-Page`: 1
+- `X-Page-Size`: 5
+- `X-Total-Pages`: 1
+- `X-Correlation-Id`: `c8f1e56b-8bf1-4e78-9e63-471f540ea509`
+
+---
+
+### 11.7. Покроковий запуск через .NET Aspire
+
+1. **Відновити залежності та зібрати рішення:**
+   ```powershell
+   dotnet restore Platform.slnx
+   dotnet build Platform.slnx
+   ```
+2. **Запустити оркестратор Aspire:**
+   ```powershell
+   dotnet run --project Platform.AppHost
+   ```
+3. **Відкрити Aspire Dashboard:**
+   Посилання на дашборд виводиться у консолі (наприклад, `http://localhost:15042`).
+   У дашборді відображаються обидва мікросервіси:
+   - `bookings-api`
+   - `catalog-api` (порт формується динамічно або зафіксований у `launchSettings.json`, Swagger UI доступний за адресою `/swagger`).
+
+---
+
+### 11.8. Приклади HTTP-запитів до основних ендпоінтів `Catalog.Api`
+
+Всі запити також доступні для одноклацального виконання у файлі [`Catalog.http`](file:///d:/detailing-db/Services/Catalog/Catalog.Api/Catalog.http).
+
+#### 1. Отримати список послуг з фільтрацією та пагінацією (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5242/api/services?page=1&pageSize=5&sortBy=price&sortOrder=asc"
+```
+
+#### 2. Отримати послугу за ID через Eager Loading (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5242/api/services/1"
+```
+
+#### 3. Отримати послугу за ID через Explicit Loading (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5242/api/services/1/explicit"
+```
+
+#### 4. Фільтрація послуг через специфікацію Ardalis за мінімальним терміном гарантії (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5242/api/services/by-warranty?minWarrantyMonths=12"
+```
+
+#### 5. Отримати нещодавно додані послуги пакету через LINQ-запит до `PackageServices.AddedAt` (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5242/api/packages/1/recently-added-services?since=2024-01-01"
+```
+
+#### 6. Створити нову послугу (`201 Created` з заголовком `Location`):
+```bash
+curl -i -X POST "http://localhost:5242/api/services" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoryId": 1,
+    "name": "Нанокераміка 9H Ceramic Pro",
+    "price": 12000.00,
+    "durationMin": 480,
+    "spec": {
+      "warrantyMonths": 24,
+      "equipment": "Rupes BigFoot, Polishing pads, IR dryer",
+      "materials": "Ceramic Pro 9H, Top Coat",
+      "requirements": "Попереднє двокрокове відновлювальне полірування кузова"
+    }
+  }'
+```
+
+#### 7. Перевірка валідації вхідних даних через FluentValidation (`400 Bad Request` + RFC 7807):
+```bash
+curl -i -X POST "http://localhost:5242/api/services" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoryId": 1,
+    "name": "",
+    "price": -100,
+    "durationMin": 0
+  }'
+```
+
+#### 8. Перевірка конфлікту назви (`409 Conflict` + RFC 7807):
+```bash
+curl -i -X POST "http://localhost:5242/api/services" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoryId": 1,
+    "name": "Абразивне відновлювальне полірування кузова",
+    "price": 6500.00,
+    "durationMin": 480
+  }'
+```
+
+#### 9. Оновити ціну послуги (`200 OK`):
+```bash
+curl -i -X PATCH "http://localhost:5242/api/services/1/price" \
+  -H "Content-Type: application/json" \
+  -d '{"newPrice": 5200.00}'
+```
+
+#### 10. М'яке видалення послуги (`204 No Content`):
+```bash
+curl -i -X DELETE "http://localhost:5242/api/services/1"
+```
+
+---
+
+### 11.9. Контрольні питання до Практичного заняття №03
+
+#### 1. У чому полягає фундаментальна різниця між Eager Loading, Explicit Loading та Lazy Loading у Entity Framework Core?
+**Відповідь:**
+- **Eager Loading (`Include` / `ThenInclude`):** пов'язані дані завантажуються одразу в тому самому SQL-запиті за допомогою реляційних з'єднань `LEFT JOIN`. Це найкращий вибір для відображення детальної картки сутності, оскільки генерує рівно один мережевий запит до СУБД.
+- **Explicit Loading (`Entry().Reference().LoadAsync()` / `Entry().Collection().LoadAsync()`):** пов'язані сутності завантажуються явно пізніше за окремими запитами до БД на вимогу коду. Це дозволяє розділити важкі дочірні колекції або завантажувати їх лише за певної умови.
+- **Lazy Loading (через проксі `UseLazyLoadingProxies`):** дані підвантажуються неявно під час звернення до навігаційної властивості `virtual`. Небезпечний виникненням антипатерну **N+1 Queries Problem**, блокуванням потоків та ускладненням контролю над транзакціями й життєвим циклом контексту, тому в сучасних високонавантажених мікросервісах його використання уникають на користь Eager/Explicit або специфікацій.
+
+#### 2. Як патерн Specification (`Ardalis.Specification`) допомагає зберегти чистоту доменної моделі та архітектурних шарів?
+**Відповідь:** Специфікація інкапсулює бізнес-правило вибірки (фільтри `Where`, критерії сортування `OrderBy`, зв'язки `Include` та пагінацію) в окремому перевірюваному класі. Це запобігає витоку логіки `IQueryable` у шар сервісів BLL і дозволяє `GenericRepository<T>` залишатися універсальним, не розростаючись сотнями специфічних методів на кшталт `GetServicesByPriceAndWarrantyAndCategory(...)`.
+
+#### 3. Чому конфігурації сутностей (`IEntityTypeConfiguration<T>`) слід виносити в окремі класи замість опису всього в тілі методу `OnModelCreating`?
+**Відповідь:** Розміщення конфігурацій десятків сутностей в одному методі `CatalogDbContext.OnModelCreating` перетворює його на "God Object" на кілька тисяч рядків коду, який важко читати, підтримувати та вирішувати конфлікти злиття у Git. Винесення конфігурацій у класи `ServiceConfiguration`, `PackageConfiguration` тощо ізолює відповідальність за зіставлення кожної сутності (Single Responsibility Principle) і дозволяє автоматично зареєструвати їх усі одним викликом `modelBuilder.ApplyConfigurationsFromAssembly(typeof(CatalogDbContext).Assembly)`.
+
+#### 4. Як реалізовано захист від Plan Cache Pollution при сортуванні та фільтрації за динамічними полями?
+**Відповідь:** У `ServicesFilterSpecification` застосовано суворий **білий список (whitelist)** дозволених полів (`name`, `price`, `duration`, `createdat`). Сортування здійснюється через строго типізовані вирази LINQ (`Query.OrderBy(s => s.Price)` або `Query.OrderByDescending(s => s.Price)`), а не конкатенацію сирих рядків SQL. Це захищає як від SQL Injection, так і від надмірної генерації нестандартних планів запитів у кеші SQL Server.
+
+#### 5. Як працює оптимістичне блокування через `RowVersion` у EF Core і як воно сигналізує про конфлікт?
+**Відповідь:** Стовпець `RowVersion` має тип `rowversion` (або `timestamp` у SQL Server), який база автоматично змінює при кожному `UPDATE` рядка. У EF Core він налаштовується як `.IsRowVersion()`. Під час виконання `SaveChangesAsync()` EF Core додає поточне значення версії в умову `WHERE Id = @Id AND RowVersion = @OriginalRowVersion`. Якщо інший процес змінив рядок першим, оновлення не зачіпає жодного рядка (`0 rows affected`), і EF Core генерує виняток `DbUpdateConcurrencyException`, який транслюється в HTTP `409 Conflict`.

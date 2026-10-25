@@ -149,3 +149,68 @@
    - `BusinessConflictException` $\rightarrow$ `409 Conflict`
    - Інші винятки $\rightarrow$ `500 Internal Server Error` (де в `detail` повертається безпечне загальне повідомлення без витоку `exception.Message`).
 3. Контролери не містять блоків `try/catch` і залишаються тонкими.
+
+---
+
+## ADR-10: Вибір платформи .NET 9.0 та версій бібліотек для мікросервісу Catalog (Лаб. 03)
+
+### Рішення
+- **Платформа:** `.NET 9.0` (`net9.0`) як сучасна стабільна версія .NET SDK, встановлена в середовищі розробки.
+- **ORM:** `Microsoft.EntityFrameworkCore.SqlServer` версії `9.0.2`, `Microsoft.EntityFrameworkCore.Design` `9.0.2`.
+- **Specification Pattern:** `Ardalis.Specification` та `Ardalis.Specification.EntityFrameworkCore` версії `8.0.0`.
+- **Валідація та мапінг:** `FluentValidation.AspNetCore` `11.3.1`, `AutoMapper` `16.2.0`.
+- **Логування та документація:** `Serilog.AspNetCore` `10.0.0`, `Swashbuckle.AspNetCore` `10.3.0`.
+
+### Обґрунтування
+- Версія 9.0.2 EF Core забезпечує найкращу оптимізацію SQL-запитів, повну сумісність із C# 13, підтримку `ComplexProperty`, вдосконалену роботу з перехопленням команд та нативне зіставлення запитів LINQ.
+- `Ardalis.Specification` 8.0.0 є індустріальним стандартом відокремлення запитів від репозиторіїв без прив'язки BLL до EF Core IQueryable.
+
+---
+
+## ADR-11: Моделювання доменних зв'язків та бізнес-правил у мікросервісі Catalog
+
+### Рішення
+1. **Зв'язок 1:1 (`Services` $\leftrightarrow$ `ServiceSpecs`):**
+   - Навігаційна властивість `Service.Spec` та `ServiceSpec.Service`.
+   - Первинний ключ `ServiceSpec.ServiceId` є одночасно зовнішнім ключем (`Shared Primary Key`), з `OnDelete(DeleteBehavior.Cascade)`.
+2. **Зв'язок 1:N (`Categories` $\rightarrow$ `Services` та `Services` $\rightarrow$ `ServiceImages`):**
+   - М'яке каскадування або обмеження видалення: `Category` видаляється тільки якщо немає активних послуг (`Restrict`), а зображення `ServiceImages` видаляються каскадно разом з послугою (`Cascade`).
+   - Для `ServiceImages` реалізовано фільтрований унікальний індекс `UX_ServiceImages_ServiceId_MainOnly` `WHERE IsMain = 1`, що гарантує на рівні БД існування лише одного головного зображення для кожної послуги.
+3. **Зв'язок M:N (`Packages` $\leftrightarrow$ `Services`):**
+   - Реалізовано через явну проміжну сутність `PackageService` зі складеним первинним ключем `(PackageId, ServiceId)`.
+   - Сутність має власні колонки: `SortOrder INT NOT NULL` (з обмеженням `CK_PackageServices_SortOrder` `SortOrder >= 1`) та `AddedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`.
+4. **Інкапсуляція сутностей:**
+   - Всі властивості сутностей мають `private set`.
+   - Відсутні публічні параметроless конструктори (приватні або protected для EF Core).
+   - Колекції надаються виключно через `IReadOnlyCollection<T>`.
+   - Мутації стану можливі лише через виклики доменних методів (`UpdatePrice`, `AttachSpec`, `AddImage`, `AddService`, `RemoveService`, `SoftDelete`, `Restore`).
+5. **Soft Delete та Concurrency:**
+   - Послуги та пакети мають прапорець `IsDeleted BIT` із глобальним `HasQueryFilter(x => !x.IsDeleted)`.
+   - Оптимістичне блокування реалізовано через `byte[] RowVersion` з `IsRowVersion()`.
+
+---
+
+## ADR-12: Реалізація специфікацій (Ardalis.Specification) та пагінації
+
+### Рішення
+1. **Generic Repository з підтримкою Specification:**
+   - `GenericRepository<T>` використовує `SpecificationEvaluator.Default.GetQuery` для накладання специфікацій на `_dbSet`.
+   - Жоден репозиторій не викликає `SaveChangesAsync` самостійно; збереження змін контролюється виключно через `IUnitOfWork.SaveChangesAsync`.
+2. **Пагінація, сортування та фільтрація на рівні SQL:**
+   - `ServicesFilterSpecification` формує `IQueryable` з умовами `Where`, `OrderBy`/`OrderByDescending` та пагінацією `Skip((page - 1) * pageSize).Take(pageSize)`.
+   - Запити на підрахунок (`ServicesFilterCountSpecification`) виконують виключно `SELECT COUNT(*)` без зайвих `Include` та `Skip/Take`.
+   - Сортування дозволено виключно за валідними полями білого списку (`name`, `price`, `duration`, `createdat`).
+   - Результат повертає DTO `PagedResult<T>`, а контролер виставляє стандартні HTTP-заголовки: `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Total-Pages`.
+
+---
+
+## ADR-13: Спостережуваність, структурне логування та верифікація Eager vs Explicit Loading
+
+### Рішення
+1. **Логування SQL-команд:**
+   - У Serilog налаштовано `MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Information)`. Це дозволяє у консолі розробки бачити повний текст кожного згенерованого EF Core SQL-запиту.
+2. **Верифікація Eager vs Explicit Loading:**
+   - **Eager Loading (`GET /api/services/{id}`):** формує рівно 1 SQL-запит із `LEFT JOIN` для `Category`, `Spec`, `Images` та `PackageServices`.
+   - **Explicit Loading (`GET /api/services/{id}/explicit`):** формує 3 окремі SQL-запити: 1-й для вибірки `Services`, 2-й для `Entry(service).Reference(s => s.Spec).LoadAsync()`, 3-й для `Entry(service).Collection(s => s.Images).LoadAsync()`.
+3. **Кореляційний ID:**
+   - Кожен запит збагачується заголовком `X-Correlation-Id` (або генерує новий GUID), який передається в `LogContext` Serilog поряд із `RequestPath` та `UserId`.
