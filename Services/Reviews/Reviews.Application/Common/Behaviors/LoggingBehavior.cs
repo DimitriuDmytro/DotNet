@@ -40,14 +40,11 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
 
             return response;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             stopwatch.Stop();
-            _logger.LogError(
-                ex,
-                "Помилка під час обробки {RequestName} після {ElapsedMs} мс",
-                requestName,
-                stopwatch.ElapsedMilliseconds);
+            // Виняток централізовано логується рівно один раз у DomainExceptionHandler (Критерій 9, 13).
+            // Усунено подвійне логування винятків у конвеєрі.
             throw;
         }
     }

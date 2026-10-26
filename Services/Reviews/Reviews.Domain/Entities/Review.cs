@@ -12,11 +12,11 @@ using Reviews.Domain.ValueObjects;
 /// </summary>
 public class Review : BaseEntity
 {
-    private readonly List<ReviewComment> _comments = new();
-    private readonly List<string> _photosBefore = new();
-    private readonly List<string> _photosAfter = new();
-    private readonly List<string> _pros = new();
-    private readonly List<string> _cons = new();
+    private List<ReviewComment> _comments = new();
+    private List<string> _photosBefore = new();
+    private List<string> _photosAfter = new();
+    private List<string> _pros = new();
+    private List<string> _cons = new();
 
     public long ServiceId { get; private set; }
     public string ServiceName { get; private set; } = string.Empty;
@@ -36,7 +36,7 @@ public class Review : BaseEntity
     public IReadOnlyCollection<string> Cons => _cons.AsReadOnly();
 
     // Приватний конструктор без параметрів для BSON-десеріалізації
-    private Review()
+    public Review()
     {
     }
 

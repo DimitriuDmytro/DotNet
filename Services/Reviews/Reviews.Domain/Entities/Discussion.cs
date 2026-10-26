@@ -10,7 +10,7 @@ using Reviews.Domain.Exceptions;
 /// </summary>
 public class Discussion : BaseEntity
 {
-    private readonly List<string> _tags = new();
+    private List<string> _tags = new();
 
     public string TargetType { get; private set; } = "service";
     public long TargetId { get; private set; }
@@ -20,7 +20,7 @@ public class Discussion : BaseEntity
 
     public IReadOnlyCollection<string> Tags => _tags.AsReadOnly();
 
-    private Discussion()
+    public Discussion()
     {
     }
 

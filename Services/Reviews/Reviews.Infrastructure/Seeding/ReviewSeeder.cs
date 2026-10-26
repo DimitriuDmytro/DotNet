@@ -4,11 +4,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using Reviews.Domain.Entities;
+using Reviews.Domain.ValueObjects;
 using Reviews.Infrastructure.Persistence;
 
 /// <summary>
 /// Ідемпотентний сідер початкових даних для колекції reviews (Критерій 14).
-/// Відповідає db/p3/seed.js із фіксованими ObjectId та детальними відгуками.
+/// Відповідає db/p3/seed.js із фіксованими ObjectId та детальними відгуками (>10 документів).
 /// </summary>
 public class ReviewSeeder : IDataSeeder
 {
@@ -236,6 +238,62 @@ public class ReviewSeeder : IDataSeeder
             new[] { "Довговічність", "Легкість мийки" },
             null);
         list.Add(r9);
+
+        // 10. Відгук на регулярну двофазну мийку
+        var r10 = Review.CreateForSeeding(
+            id: ObjectId.Parse("670900000000000000000310"),
+            serviceId: 1,
+            serviceName: "Двофазна детейлінг-мийка",
+            author: new Author(6, "Тарас Шевченко", "Audi Q7 50 TDI"),
+            rating: 5,
+            title: "Швидко, якісно, без розводів",
+            text: "Регулярно заїжджаю перед вихідними. Дуже акуратно сушать авто турбосушкою без торкання ганчірками, диски вимивають до ідеалу.",
+            appointmentId: 5,
+            verifiedVisit: true,
+            createdAt: DateTime.SpecifyKind(DateTime.Parse("2026-10-12T10:00:00Z"), DateTimeKind.Utc));
+        r10.AddProsAndCons(
+            new[] { "Турбосушка кузова безконтактна", "Швидкість та чистота" },
+            new[] { "Запис заздалегідь, бо великий попит" });
+        list.Add(r10);
+
+        // 11. Відгук на захисну плівку та полірування фар
+        var r11 = Review.CreateForSeeding(
+            id: ObjectId.Parse("670900000000000000000311"),
+            serviceId: 5,
+            serviceName: "Полірування та бронювання фар плівкою",
+            author: new Author(7, "Юрій Кравченко", "Volkswagen Passat B8"),
+            rating: 5,
+            title: "Світло фар стало як на новому авто",
+            text: "Відновили прозорість полікарбонату та заклеїли якісною поліуретановою плівкою Stek DynoShield. Нічна видимість покращилася в рази!",
+            appointmentId: 6,
+            verifiedVisit: true,
+            createdAt: DateTime.SpecifyKind(DateTime.Parse("2026-10-12T15:30:00Z"), DateTimeKind.Utc));
+        r11.AddPhotos(
+            new[] { "https://cdn.detailing.ua/reviews/passat-headlight-before.jpg" },
+            new[] { "https://cdn.detailing.ua/reviews/passat-headlight-after.jpg" });
+        r11.AddProsAndCons(
+            new[] { "Якісна плівка з гідрофобним шаром", "Гарантія 5 років" },
+            null);
+        list.Add(r11);
+
+        // 12. Відгук про кераміку з коментарем адміністратора
+        var r12 = Review.CreateForSeeding(
+            id: ObjectId.Parse("670900000000000000000312"),
+            serviceId: 7,
+            serviceName: "Керамічне покриття кузова 9H",
+            author: new Author(8, "Марина Коваль", "Range Rover Evoque"),
+            rating: 4,
+            title: "Гарний блиск і захист від слідів комах",
+            text: "Зробили комплексну підготовку і кераміку перед поїздкою у відпустку. Кузов відмивається значно легше, дрібний пісок не лишає подряпин.",
+            appointmentId: null,
+            discussionId: ObjectId.Parse("670900000000000000000101"),
+            verifiedVisit: false,
+            createdAt: DateTime.SpecifyKind(DateTime.Parse("2026-10-13T12:00:00Z"), DateTimeKind.Utc));
+        r12.AddProsAndCons(
+            new[] { "Легкий догляд за кузовом", "Приємний клієнтський сервіс" },
+            new[] { "Висока вартість комплексу" });
+        r12.AddComment(new ReviewComment("Ірина (Адміністратор)", "admin", "Марино, дякуємо за відгук! Для постійних клієнтів у нас діє знижка на сезонний догляд.", DateTime.SpecifyKind(DateTime.Parse("2026-10-13T13:00:00Z"), DateTimeKind.Utc)));
+        list.Add(r12);
 
         return list;
     }

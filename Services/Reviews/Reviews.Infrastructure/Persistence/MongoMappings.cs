@@ -2,6 +2,9 @@ namespace Reviews.Infrastructure.Persistence;
 
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Conventions;
+using Reviews.Domain.Common;
+using Reviews.Domain.Entities;
+using Reviews.Domain.ValueObjects;
 
 /// <summary>
 /// Реєстрація зіставлень BsonClassMap для Domain сутностей без жодних Bson-атрибутів у домені (Критерій 2, 10).
@@ -50,7 +53,6 @@ public static class MongoMappings
             {
                 BsonClassMap.RegisterClassMap<Author>(cm =>
                 {
-                    cm.AutoMap();
                     cm.MapCreator(a => new Author(a.ClientId, a.FullName, a.CarInfo));
                     cm.MapMember(a => a.ClientId).SetElementName("clientId");
                     cm.MapMember(a => a.FullName).SetElementName("fullName");
@@ -62,7 +64,6 @@ public static class MongoMappings
             {
                 BsonClassMap.RegisterClassMap<ReviewComment>(cm =>
                 {
-                    cm.AutoMap();
                     cm.MapCreator(c => new ReviewComment(c.AuthorName, c.Role, c.Text, c.CreatedAt));
                     cm.MapMember(c => c.AuthorName).SetElementName("authorName");
                     cm.MapMember(c => c.Role).SetElementName("role");
