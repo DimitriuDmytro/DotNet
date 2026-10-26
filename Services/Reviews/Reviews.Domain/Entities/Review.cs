@@ -217,4 +217,37 @@ public class Review : BaseEntity
         Title = trimmedTitle;
         Text = trimmedText;
     }
+
+    public static Review CreateForSeeding(
+        ObjectId id,
+        long serviceId,
+        string serviceName,
+        Author author,
+        int rating,
+        string title,
+        string text,
+        long? appointmentId = null,
+        ObjectId? discussionId = null,
+        bool verifiedVisit = false,
+        DateTime? createdAt = null)
+    {
+        var review = new Review(
+            serviceId: serviceId,
+            serviceName: serviceName,
+            rating: rating,
+            title: title,
+            text: text,
+            author: author,
+            appointmentId: appointmentId,
+            verifiedVisit: verifiedVisit,
+            discussionId: discussionId,
+            id: id);
+
+        if (createdAt.HasValue)
+        {
+            review.CreatedAt = createdAt.Value;
+        }
+
+        return review;
+    }
 }

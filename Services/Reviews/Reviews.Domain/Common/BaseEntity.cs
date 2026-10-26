@@ -13,6 +13,19 @@ public abstract class BaseEntity
     public DateTime? UpdatedAt { get; protected set; }
     public int Version { get; protected set; } = 1;
 
+    protected BaseEntity()
+    {
+    }
+
+    protected BaseEntity(ObjectId id, DateTime? createdAt = null)
+    {
+        Id = id;
+        if (createdAt.HasValue)
+        {
+            CreatedAt = createdAt.Value;
+        }
+    }
+
     public void Touch()
     {
         UpdatedAt = DateTime.UtcNow;
