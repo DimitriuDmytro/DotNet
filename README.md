@@ -1001,3 +1001,288 @@ curl -i -X DELETE "http://localhost:5242/api/services/1"
 
 #### 5. Як працює оптимістичне блокування через `RowVersion` у EF Core і як воно сигналізує про конфлікт?
 **Відповідь:** Стовпець `RowVersion` має тип `rowversion` (або `timestamp` у SQL Server), який база автоматично змінює при кожному `UPDATE` рядка. У EF Core він налаштовується як `.IsRowVersion()`. Під час виконання `SaveChangesAsync()` EF Core додає поточне значення версії в умову `WHERE Id = @Id AND RowVersion = @OriginalRowVersion`. Якщо інший процес змінив рядок першим, оновлення не зачіпає жодного рядка (`0 rows affected`), і EF Core генерує виняток `DbUpdateConcurrencyException`, який транслюється в HTTP `409 Conflict`.
+
+
+---
+
+## 12. Практичне заняття №04: Чиста архітектура (Clean Architecture), CQRS, MediatR та MongoDB для контексту «Відгуки та звіти» (Reviews)
+
+### 12.1. Огляд мікросервісу `Reviews`
+Мікросервіс **`Reviews`** реалізує предметну область відгуків клієнтів та звітів дітейлінг-студії (Проєкт №3 з Лаб. 01). Він спроєктований за принципами **Clean Architecture** (Чистої архітектури), патерном **CQRS** (Command Query Responsibility Segregation) за допомогою **MediatR 14**, документно-орієнтованої СУБД **MongoDB 7.0** та оркестрації **.NET Aspire**.
+
+```mermaid
+graph TD
+    WebApi["Reviews.WebApi\n(REST Controllers, ETag, ProblemDetails, Serilog)"] --> Application["Reviews.Application\n(CQRS Commands, Queries, MediatR Behaviors, FluentValidation, DTOs)"]
+    WebApi --> Infrastructure["Reviews.Infrastructure\n(MongoDbContext, BsonClassMap, Repositories, Seeder, Indexes)"]
+    Infrastructure --> Application
+    Infrastructure --> Domain["Reviews.Domain\n(Aggregates, BaseEntity, Value Objects, Domain Exceptions)"]
+    Application --> Domain
+
+    style Domain fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style Application fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style Infrastructure fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style WebApi fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+```
+
+### 12.2. Шари Clean Architecture та правила залежностей
+
+1. **`Reviews.Domain`** — ядро системи:
+   - Не залежить від жодного іншого проєкту та зовнішніх бібліотек (за винятком низькорівневого `MongoDB.Bson` виключно для типу `ObjectId`).
+   - **Жодних Bson-атрибутів у домені** (`[BsonId]`, `[BsonElement]`, `[BsonIgnore]` суворо заборонені).
+   - Містить базові класи:
+     - `BaseEntity`: сурогатний `ObjectId Id`, `DateTime CreatedAt`, `DateTime? UpdatedAt`, `int Version = 1`, методи `Touch()` та `BumpVersion()`.
+     - `ValueObject`: базовий клас для незмінних об'єктів-значень з перевантаженням `==`, `!=`, `Equals` та `GetHashCode` через `GetEqualityComponents()`.
+   - Доменні сутності та об'єкти-значення:
+     - `Review` (агрегат): приватні сетери, приватний безпараметричний конструктор для серіалізації, публічний конструктор з валідацією доменних інваріантів, приватні колекції `_comments`, `_photosBefore`, `_photosAfter`, `_pros`, `_cons` з доступом через `IReadOnlyCollection<T>`, мутаційні методи (`UpdateDetails`, `AddComment` з лімітом $\le 3$, `AddPhotos`, `SetVideoUrl`, `AddProsAndCons`, `SetDiscussionId`) з автоматичним викликом `Touch()`.
+     - `Discussion`: сутність теми обговорення.
+     - `Author`: незмінний Value Object (`ClientId`, `FullName`, `CarInfo?`).
+     - `ReviewComment`: незмінний Value Object (`AuthorName`, `Role`, `Text`, `CreatedAt`).
+   - Доменні винятки: `DomainException`, `NotFoundException`, `ConflictException`.
+   - Доменні інтерфейси: `IReviewRepository`.
+
+2. **`Reviews.Application`** — рівень сценаріїв використання (Use Cases):
+   - Залежить виключно від `Reviews.Domain`. Не містить посилань на `MongoDB.Driver`.
+   - Реалізує CQRS-маркери: `ICommand`, `ICommand<TResponse>`, `IQuery<TResponse>`.
+   - **Команди (Commands):**
+     - `CreateReviewCommand` $\rightarrow$ повертає рядковий `ObjectId` нового відгуку.
+     - `UpdateReviewCommand` $\rightarrow$ приймає `ExpectedVersion` для контролю конфліктів оновлення.
+     - `DeleteReviewCommand` $\rightarrow$ видалення відгуку за його `Id`.
+     - Кожен обробник реалізує окремий `IRequestHandler` і взаємодіє із базою **виключно через `IReviewRepository`**.
+   - **Запити (Queries):**
+     - `GetReviewByIdQuery` $\rightarrow$ повертає `ReviewDetailDto?`.
+     - `GetReviewsListQuery` $\rightarrow$ приймає `ServiceId?`, `Page`, `PageSize`, нормалізує межі пагінації `Math.Clamp(PageSize, 1, 100)` та повертає `PagedResult<ReviewListDto>`.
+     - Обробники запитів працюють через оптимізований інтерфейс читання `IReviewQueries`.
+   - **MediatR Pipeline Behaviors (у строгому порядку реєстрації):**
+     1. `LoggingBehavior`: логує ім'я команди/запиту, параметри та час виконання на рівні `Information`.
+     2. `ValidationBehavior`: знаходить усі зареєстровані валідатори `FluentValidation`, запускає їх паралельно через `Task.WhenAll`. Якщо є помилки — викидає `ValidationException` і **не викликає `next()`**.
+     3. `PerformanceBehavior`: заміряє час виконання і видає `Warning` у разі перевищення порогу 500 мс.
+   - Валідатори команд та запитів (включаючи `MustAsync` у `CreateReviewCommandValidator` з перевіркою відсутності повторного відгуку від клієнта через `IReviewRepository.ExistsAsync`).
+   - Профіль `ReviewMappingProfile` на AutoMapper для проекції сутностей у DTO.
+   - Метод розширення DI: `services.AddApplication(configuration)` з реєстрацією відкритого ліцензійного ключа `LuckyPenny:LicenseKey` для MediatR та AutoMapper.
+
+3. **`Reviews.Infrastructure`** — рівень доступу до даних та інтеграцій:
+   - Залежить від `Reviews.Application` та `Reviews.Domain`. Посилається на `MongoDB.Driver`.
+   - `MongoDbOptions`: секція конфігурації `MongoDb` (`ConnectionString`, `DatabaseName = "detailing_reviews"`, `RunStartupTasks`).
+   - `MongoMappings`: потокобезпечна реєстрація зіставлень `BsonClassMap.RegisterClassMap<T>` без атрибутів у домені (із налаштуванням `CamelCaseElementNameConvention`, `IgnoreExtraElementsConvention`, приватних полів `_comments`, `_photosBefore` тощо).
+   - `MongoDbContext`: доступ до типізованих колекцій `Reviews` та `Discussions`.
+   - `ReviewRepository`: реалізація `IReviewRepository` з підтримкою оптимістичного блокування (`Version == expectedVersion` $\rightarrow$ `review.BumpVersion()` $\rightarrow$ перевірка `result.MatchedCount == 0` із перевіркою існування документа та генерацією `ConflictException`).
+   - `ReviewQueries`: реалізація `IReviewQueries` з `$match`-фільтрацією, сортуванням, `Skip/Limit`-пагінацією та підрахунком `CountDocumentsAsync`.
+   - `IndexCreationService`: фонова служба `IHostedService`, що створює індекси:
+     - Складений індекс `{ serviceId: 1, createdAt: -1 }`
+     - Повнотекстовий індекс `{ title: "text", text: "text" }`
+     - Унікальний індекс `{ serviceId: 1, "author.clientId": 1 }`
+   - `ReviewSeeder`: ідемпотентний сідінг 9 реалістичних відгуків з `db/p3/seed.js` із фіксованими `ObjectId`.
+   - Метод розширення DI: `services.AddInfrastructure(configuration)`.
+
+4. **`Reviews.WebApi`** — презентаційний рівень:
+   - Тонкі REST-контролери (успадковані від `ApiController`), які делегують роботу виключно через `Mediator.Send(...)`.
+   - Ендпоінти:
+     - `GET /api/reviews?serviceId=&page=1&pageSize=20` $\rightarrow$ `200 OK`
+     - `GET /api/reviews/{id}` $\rightarrow$ `200 OK` із заголовком `ETag: "{Version}"` (або `404 Not Found`)
+     - `POST /api/reviews` $\rightarrow$ `201 Created` із заголовком `Location` та ідентифікатором
+     - `PUT /api/reviews/{id}` $\rightarrow$ `204 NoContent` (підтримка заголовка `If-Match: "{Version}"`, при версійному конфлікті повертає `409 Conflict`)
+     - `DELETE /api/reviews/{id}` $\rightarrow$ `204 NoContent`
+   - `DomainExceptionHandler`: реалізація `IExceptionHandler` для форматування RFC 7807 `application/problem+json` та централізованого логування рівно один раз на кожен виняток:
+     - `NotFoundException` $\rightarrow$ `404 Not Found`
+     - `ValidationException` $\rightarrow$ `400 Bad Request` (`ValidationProblemDetails`)
+     - `DomainException` $\rightarrow$ `400 Bad Request`
+     - `ConflictException` $\rightarrow$ `409 Conflict`
+     - `MongoWriteException (DuplicateKey)` $\rightarrow$ `409 Conflict`
+     - `MongoConnectionException` $\rightarrow$ `503 Service Unavailable`
+     - Інші винятки $\rightarrow$ `500 Internal Server Error`
+   - Health check: `/health` (перевірка стану підключення до MongoDB через `AspNetCore.HealthChecks.MongoDb`).
+   - Структуроване логування через **Serilog**.
+
+---
+
+### 12.3. Запуск мікросервісу `Reviews`
+
+#### 1. Запуск MongoDB через Docker Compose:
+```powershell
+docker compose up -d mongodb
+```
+Перевірити стан контейнера:
+```powershell
+docker ps --filter "name=detailing-mongo"
+```
+
+#### 2. Запуск сервісу безпосередньо через .NET CLI:
+```powershell
+dotnet run --project Services/Reviews/Reviews.WebApi/Reviews.WebApi.csproj
+```
+Сервіс доступний за адресою:
+- Swagger UI: `http://localhost:5004/swagger`
+- Health check: `http://localhost:5004/health`
+
+#### 3. Запуск усієї платформи через .NET Aspire AppHost:
+```powershell
+dotnet run --project Platform.AppHost/Platform.AppHost.csproj
+```
+Панель керування Aspire автоматично підніме та відобразить усі три мікросервіси:
+- `bookings-api`
+- `catalog-api`
+- `reviews-webapi`
+
+---
+
+### 12.4. Перевірка створених індексів у MongoDB
+Після першого запуску сервісу фонова служба `IndexCreationService` автоматично створює всі необхідні індекси. Перевірити їх можна через утиліту `mongosh`:
+
+```bash
+mongosh "mongodb://localhost:27017/detailing_reviews" --eval "db.reviews.getIndexes()"
+```
+
+Очікуваний результат:
+```json
+[
+  { "v": 2, "key": { "_id": 1 }, "name": "_id_" },
+  { "v": 2, "key": { "serviceId": 1, "createdAt": -1 }, "name": "ix_reviews_serviceId_createdAt" },
+  { "v": 2, "key": { "_fts": "text", "_ftsx": 1 }, "name": "ix_reviews_title_text" },
+  { "v": 2, "key": { "serviceId": 1, "author.clientId": 1 }, "name": "ux_reviews_serviceId_authorClientId", "unique": true }
+]
+```
+
+---
+
+### 12.5. Приклади HTTP-запитів до основних ендпоінтів `Reviews.WebApi`
+
+Усі запити доступні у файлі [`Reviews.http`](file:///d:/detailing-db/Services/Reviews/Reviews.WebApi/Reviews.http).
+
+#### 1. Отримати список відгуків з пагінацією (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5004/api/reviews?page=1&pageSize=10"
+```
+
+#### 2. Отримати список відгуків з фільтрацією за послугою (наприклад `serviceId=7` — Кераміка 9H) (`200 OK`):
+```bash
+curl -i -X GET "http://localhost:5004/api/reviews?serviceId=7&page=1&pageSize=10"
+```
+
+#### 3. Отримати детальний відгук за його MongoDB ObjectId (`200 OK` + заголовок `ETag: "1"`):
+```bash
+curl -i -X GET "http://localhost:5004/api/reviews/670900000000000000000301"
+```
+
+#### 4. Створити новий відгук на послугу (`201 Created` + заголовок `Location`):
+```bash
+curl -i -X POST "http://localhost:5004/api/reviews" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "serviceId": 2,
+    "serviceName": "Трифазна детейлінг-мийка",
+    "appointmentId": null,
+    "discussionId": null,
+    "rating": 5,
+    "title": "Бездоганна чистота кузова та дисків!",
+    "text": "Спробував трифазну мийку преміум-класу. Консервація воском дала неймовірний блиск і водовідштовхувальний ефект на тиждень.",
+    "verifiedVisit": false,
+    "authorClientId": 99,
+    "authorFullName": "Сергій Павленко",
+    "authorCarInfo": "Volkswagen Touareg 2022",
+    "pros": [
+      "Глибоке очищення дисків від металевих вкраплень",
+      "Приємний гідрофоб"
+    ]
+  }'
+```
+
+#### 5. Перевірка відхилення невалідних даних (`400 Bad Request` + RFC 7807 `ValidationProblemDetails`):
+```bash
+curl -i -X POST "http://localhost:5004/api/reviews" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "serviceId": 0,
+    "serviceName": "",
+    "rating": 10,
+    "title": "ab",
+    "text": "12"
+  }'
+```
+
+#### 6. Перевірка повторного відгуку клієнта на ту саму послугу (`400 Bad Request` через `MustAsync`):
+```bash
+curl -i -X POST "http://localhost:5004/api/reviews" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "serviceId": 7,
+    "serviceName": "Керамічне покриття 9H",
+    "authorClientId": 1,
+    "authorFullName": "Олександр Коваленко",
+    "rating": 5,
+    "title": "Повторна спроба відгуку",
+    "text": "Це спроба залишити дублюючий відгук від того самого користувача."
+  }'
+```
+
+#### 7. Оновити відгук з контролем версії через заголовок `If-Match` (`204 No Content`):
+```bash
+curl -i -X PUT "http://localhost:5004/api/reviews/670900000000000000000301" \
+  -H "If-Match: \"1\"" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "670900000000000000000301",
+    "expectedVersion": 1,
+    "rating": 5,
+    "title": "Неймовірний дзеркальний блиск на чорному BMW X5 (Оновлено)!",
+    "text": "Робив двофазну мийку та двошарову кераміку 9H. Минув місяць — гідрофоб тримається відмінно!"
+  }'
+```
+
+#### 8. Перевірка виявлення конфлікту паралельного редагування (`409 Conflict` + RFC 7807):
+```bash
+curl -i -X PUT "http://localhost:5004/api/reviews/670900000000000000000301" \
+  -H "If-Match: \"1\"" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "670900000000000000000301",
+    "expectedVersion": 1,
+    "rating": 4,
+    "title": "Застаріла версія запиту",
+    "text": "Спроба оновити запис за неактуальною версією."
+  }'
+```
+
+#### 9. Видалити відгук (`204 No Content`):
+```bash
+curl -i -X DELETE "http://localhost:5004/api/reviews/670900000000000000000302"
+```
+
+#### 10. Перевірка запиту неіснуючого ресурсу (`404 Not Found` + RFC 7807):
+```bash
+curl -i -X GET "http://localhost:5004/api/reviews/670900000000000000000399"
+```
+
+---
+
+### 12.6. Контрольні питання та відповіді до Практичного заняття №04
+
+#### 1. Чому згідно з Clean Architecture сутності Domain не повинні містити жодних Bson-атрибутів (`[BsonId]`, `[BsonElement]`)?
+**Відповідь:** Ядро доменної моделі (Domain Layer) має бути абсолютно незалежним від конкретних фреймворків, бібліотек серіалізації та драйверів баз даних (Persistence Ignorance). Якщо розмістити атрибути `[BsonElement]` або `[BsonId]` на властивостях сутності, домен стає жорстко прив'язаним до конкретної СКБД (MongoDB). Будь-яка зміна або заміна сховища (наприклад, перехід на PostgreSQL чи RavenDB) вимагатиме рефакторингу доменного шару. Використання Fluent API конфігурації через `BsonClassMap.RegisterClassMap<T>` у шарі `Reviews.Infrastructure` повністю ізолює інфраструктурні деталі серіалізації від бізнес-правил.
+
+#### 2. У чому полягає перевага патерну CQRS при роботі з документною СУБД MongoDB?
+**Відповідь:** Патерн CQRS чітко розділяє операції зміни стану (Commands) та операції отримання даних (Queries):
+- **Команди (Write Side):** працюють через багату доменну модель та `IReviewRepository`. Кожна зміна валідує бізнес-правила, контролює версію для оптимістичного блокування та зберігає цілісний агрегат.
+- **Запити (Read Side):** оминають створення доменних агрегатів, відстеження змін та накладні витрати на повну матеріалізацію сутності. Через `IReviewQueries` виконується пряма проєкція на рівні СКБД (`$project`, `Find().Project()`) безпосередньо у легковикові DTO. Це суттєво підвищує швидкість відповіді, зменшує навантаження на Garbage Collector та дозволяє масштабувати операції читання і запису незалежно.
+
+#### 3. Як працює конвеєр обробки запитів (Pipeline Behaviors) у MediatR та чому важливий порядок реєстрації?
+**Відповідь:** Поведінки MediatR реалізують патерн Decorator / Chain of Responsibility навколо виконання обробника запиту. Кожна поведінка перехоплює виконання до і після виклику наступної ланки `next()`. Порядок реєстрації в DI є вирішальним:
+1. `LoggingBehavior` повинен бути першим, щоб зафіксувати вхідний запит ще до валідації та гарантувати фіксацію помилок або загального часу виконання, навіть якщо наступні ланки завершилися винятком.
+2. `ValidationBehavior` має виконуватися перед бізнес-логікою: якщо вхідні дані некоректні, валідатор викидає `ValidationException` і **не викликає `next()`**, запобігаючи нецільовому навантаженню на базу даних або виконання мутацій.
+3. `PerformanceBehavior` реєструється безпосередньо перед обробником, щоб заміряти чистий час виконання бізнес-логіки без врахування накладних витрат валідації.
+
+#### 4. Як реалізовано оптимістичне блокування (Optimistic Concurrency) у MongoDB без механізму блокування рядків?
+**Відповідь:** У документі `Review` визначено цілочисельне поле `version` (початкове значення `1`). Коли клієнт отримує відгук, він отримує заголовок `ETag: "{version}"`. Під час виконання запиту `PUT` передається `ExpectedVersion`. У репозиторії виконується атомарна операція:
+```csharp
+Builders<Review>.Filter.And(
+    Builders<Review>.Filter.Eq(r => r.Id, review.Id),
+    Builders<Review>.Filter.Eq(r => r.Version, expectedVersion)
+);
+```
+Перед збереженням версія документа збільшується `review.BumpVersion()`. Завдяки атомарності операції `ReplaceOneAsync` у MongoDB документ оновиться лише тоді, коли його поточна версія у сховищі точно збігається з очікуваною. Якщо `result.MatchedCount == 0`, це свідчить про те, що документ уже було змінено паралельним процесом, і система генерує `ConflictException` (HTTP `409 Conflict`).
+
+#### 5. Як централізований інтерфейс `IExceptionHandler` в ASP.NET Core 8/9 спрощує обробку помилок порівняно з класичними `try-catch` блоками в кожному контролері?
+**Відповідь:** `IExceptionHandler` дозволяє контролерам залишатися гранично тонкими (Thin Controllers) і зосереджуватися виключно на маршрутизації та виклику `Mediator.Send(...)`. Жоден метод контролера не потребує конструкцій `try-catch`. Усі винятки з домену (`DomainException`, `NotFoundException`, `ConflictException`), шару валідації (`ValidationException`) або інфраструктури (`MongoWriteException`, `MongoConnectionException`) перехоплюються централізовано в `DomainExceptionHandler`. Це гарантує:
+- Суворе дотримання стандарту RFC 7807 (`ProblemDetails`, `ValidationProblemDetails`) та медіа-типу `application/problem+json`.
+- Відсутність витоку конфіденційної інформації стек-трейсу в середовищі `Production`.
+- Додавання ідентифікатора трасування `traceId` до кожної помилки.
+- Усунення дублювання записів у системних журналах (рівно один структурований лог на кожен виняток).
