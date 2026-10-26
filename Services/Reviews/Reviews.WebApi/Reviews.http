@@ -1,0 +1,53 @@
+@baseUrl = http://localhost:5004
+
+### 1. Перевірка здоров'я сервісу (Health Check)
+GET {{baseUrl}}/health
+
+### 2. Отримати список відгуків (пагінація)
+GET {{baseUrl}}/api/reviews?page=1&pageSize=10
+
+### 3. Отримати список відгуків з фільтром за послугою (serviceId = 7 - Кераміка 9H)
+GET {{baseUrl}}/api/reviews?serviceId=7&page=1&pageSize=10
+
+### 4. Отримати детальний відгук за ID (повертає заголовок ETag)
+GET {{baseUrl}}/api/reviews/670900000000000000000301
+
+### 5. Створити новий відгук (POST)
+POST {{baseUrl}}/api/reviews
+Content-Type: application/json
+
+{
+  "serviceId": 2,
+  "serviceName": "Трифазна детейлінг-мийка",
+  "appointmentId": null,
+  "discussionId": null,
+  "rating": 5,
+  "title": "Бездоганна чистота кузова та дисків!",
+  "text": "Спробував трифазну мийку преміум-класу. Консервація воском дала неймовірний блиск і водовідштовхувальний ефект на тиждень.",
+  "verifiedVisit": false,
+  "authorClientId": 99,
+  "authorFullName": "Сергій Павленко",
+  "authorCarInfo": "Volkswagen Touareg 2022",
+  "pros": [
+    "Глибоке очищення дисків від металевих вкраплень",
+    "Приємний гідрофоб"
+  ],
+  "cons": null
+}
+
+### 6. Оновити існуючий відгук з контролем версії (PUT з If-Match)
+PUT {{baseUrl}}/api/reviews/670900000000000000000301
+If-Match: "1"
+Content-Type: application/json
+
+{
+  "id": "670900000000000000000301",
+  "expectedVersion": 1,
+  "rating": 5,
+  "title": "Неймовірний дзеркальний блиск на чорному BMW X5 (Оновлено)!",
+  "text": "Робив двофазну мийку та двошарову кераміку 9H. Колір Black Sapphire став значно глибшим, вода просто злітає з капота на швидкості 50 км/год. Минув місяць — гідрофоб тримається відмінно!",
+  "videoUrl": "https://cdn.detailing.ua/reviews/app1-bmw-hydrophobic.mp4"
+}
+
+### 7. Видалити відгук за ID
+DELETE {{baseUrl}}/api/reviews/670900000000000000000302
