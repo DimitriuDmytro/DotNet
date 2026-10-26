@@ -67,10 +67,14 @@ public class Review : BaseEntity
         DiscussionId = discussionId;
     }
 
-    public void UpdateDetails(int rating, string title, string text)
+    public void UpdateDetails(int rating, string title, string text, string? videoUrl = null)
     {
         SetRating(rating);
         SetContent(title, text);
+        if (videoUrl != null)
+        {
+            SetVideoUrl(videoUrl);
+        }
         Touch();
     }
 
