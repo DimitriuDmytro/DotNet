@@ -1,6 +1,7 @@
 namespace Reviews.Infrastructure.Seeding;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Reviews.Infrastructure.Persistence;
@@ -12,16 +13,27 @@ using Reviews.Infrastructure.Persistence;
 public class ReviewSeeder : IDataSeeder
 {
     private readonly MongoDbContext _context;
+    private readonly IOptions<MongoDbOptions> _options;
     private readonly ILogger<ReviewSeeder> _logger;
 
-    public ReviewSeeder(MongoDbContext context, ILogger<ReviewSeeder> logger)
+    public ReviewSeeder(
+        MongoDbContext context,
+        IOptions<MongoDbOptions> options,
+        ILogger<ReviewSeeder> logger)
     {
         _context = context;
+        _options = options;
         _logger = logger;
     }
 
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
+        if (!_options.Value.RunStartupTasks)
+        {
+            _logger.LogInformation("ReviewSeeder пропущено (RunStartupTasks = false).");
+            return;
+        }
+
         try
         {
             var existingCount = await _context.Reviews.EstimatedDocumentCountAsync(cancellationToken: cancellationToken);

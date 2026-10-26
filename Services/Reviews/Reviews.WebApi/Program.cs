@@ -26,7 +26,12 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 
 // Web API контролери та Swagger (Критерій 12)
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Валідація виконується через MediatR ValidationBehavior та FluentValidation (Критерій 8)
+        options.SuppressModelStateInvalidFilter = true;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -60,7 +65,8 @@ app.MapControllers();
 app.MapHealthChecks("/health");
 
 // Ідемпотентне наповнення початковими даними при запуску (Критерій 14)
-if (!app.Environment.IsEnvironment("Testing"))
+var mongoOptions = app.Services.GetRequiredService<IOptions<MongoDbOptions>>().Value;
+if (!app.Environment.IsEnvironment("Testing") && mongoOptions.RunStartupTasks)
 {
     try
     {

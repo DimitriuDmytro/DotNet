@@ -8,6 +8,7 @@ using Reviews.Application.Reviews.Commands.UpdateReview;
 using Reviews.Application.Reviews.DTOs;
 using Reviews.Application.Reviews.Queries.GetReviewById;
 using Reviews.Application.Reviews.Queries.GetReviewsList;
+using Reviews.Domain.Exceptions;
 
 /// <summary>
 /// REST API контролер для управління відгуками клієнтів детейлінг-студії (Критерій 12).
@@ -45,12 +46,7 @@ public class ReviewsController : ApiController
 
         if (result == null)
         {
-            return NotFound(new ProblemDetails
-            {
-                Status = StatusCodes.Status404NotFound,
-                Title = "Not Found",
-                Detail = $"Відгук з ID '{id}' не знайдено."
-            });
+            throw new NotFoundException($"Відгук з ID '{id}' не знайдено.");
         }
 
         Response.Headers.ETag = $"\"{result.Version}\"";

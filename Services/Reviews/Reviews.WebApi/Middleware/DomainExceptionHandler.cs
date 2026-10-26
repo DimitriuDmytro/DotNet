@@ -125,7 +125,13 @@ public class DomainExceptionHandler : IExceptionHandler
 
         problemDetails.Extensions["traceId"] = httpContext.TraceIdentifier;
 
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
+        await httpContext.Response.WriteAsJsonAsync(
+            problemDetails,
+            problemDetails.GetType(),
+            options: null,
+            contentType: "application/problem+json",
+            cancellationToken: cancellationToken);
+
         return true;
     }
 }

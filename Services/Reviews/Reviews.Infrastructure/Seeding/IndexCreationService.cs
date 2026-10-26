@@ -2,6 +2,7 @@ namespace Reviews.Infrastructure.Seeding;
 
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Reviews.Infrastructure.Persistence;
 
@@ -15,16 +16,27 @@ using Reviews.Infrastructure.Persistence;
 public class IndexCreationService : IHostedService
 {
     private readonly MongoDbContext _context;
+    private readonly IOptions<MongoDbOptions> _options;
     private readonly ILogger<IndexCreationService> _logger;
 
-    public IndexCreationService(MongoDbContext context, ILogger<IndexCreationService> logger)
+    public IndexCreationService(
+        MongoDbContext context,
+        IOptions<MongoDbOptions> options,
+        ILogger<IndexCreationService> logger)
     {
         _context = context;
+        _options = options;
         _logger = logger;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (!_options.Value.RunStartupTasks)
+        {
+            _logger.LogInformation("IndexCreationService пропущено (RunStartupTasks = false).");
+            return;
+        }
+
         try
         {
             _logger.LogInformation("Початок перевірки та створення індексів для колекції reviews...");
