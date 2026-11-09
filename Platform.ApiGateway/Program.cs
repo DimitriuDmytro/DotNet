@@ -15,10 +15,12 @@ builder.Services.AddReverseProxy()
 
 var app = builder.Build();
 
+var routingLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Gateway.Routing");
+
 // CorrelationId Middleware ОБОВ'ЯЗКОВО до MapReverseProxy
 app.UseMiddleware<CorrelationIdMiddleware>();
 
-// Логування маршрутизації, IP клієнта, розміру відповіді та помилок зв'язку
+// Логування маршрутизації, IP клієнта, розміру відповіді та помилок зв'язку (GW-15, GW-16, GW-17)
 app.Use(async (context, next) =>
 {
     var sw = Stopwatch.StartNew();
@@ -31,27 +33,29 @@ app.Use(async (context, next) =>
     var proxyFeature = context.GetReverseProxyFeature();
     var routeId = proxyFeature?.Route?.Config?.RouteId ?? "unmatched";
     var clusterId = proxyFeature?.Cluster?.Config?.ClusterId ?? "none";
+    var destination = proxyFeature?.ProxiedDestination?.Model?.Config?.Address ?? "none";
     var statusCode = context.Response.StatusCode;
-    var contentLength = context.Response.ContentLength ?? 0;
+    var responseSize = context.Response.ContentLength;
 
-    app.Logger.LogInformation(
-        "Gateway: {Method} {Path} from {ClientIp} -> route '{Route}' (cluster '{Cluster}'): {StatusCode} [size: {Bytes} B] in {Elapsed} ms",
+    routingLogger.LogInformation(
+        "Gateway: {Method} {Path} from {ClientIp} -> route '{RouteId}' (cluster '{ClusterId}', destination '{Destination}'): {StatusCode} [size: {ResponseSize} B] in {ElapsedMs} ms",
         context.Request.Method,
         context.Request.Path,
         clientIp,
         routeId,
         clusterId,
+        destination,
         statusCode,
-        contentLength,
+        responseSize ?? 0,
         sw.ElapsedMilliseconds);
 
-    // Логування помилок недоступності сервісів / forwarder error
+    // Логування помилок недоступності сервісів / forwarder error (GW-16)
     var forwarderError = context.Features.Get<IForwarderErrorFeature>();
     if (forwarderError != null)
     {
-        app.Logger.LogWarning(
+        routingLogger.LogWarning(
             forwarderError.Exception,
-            "Gateway Forwarder Warning: помилка перенаправлення запиту до кластера '{Cluster}' (Error: {Error})",
+            "Gateway Forwarder Warning: помилка перенаправлення запиту до кластера '{ClusterId}' (Error: {Error})",
             clusterId,
             forwarderError.Error);
     }
