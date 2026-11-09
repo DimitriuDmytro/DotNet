@@ -1,4 +1,6 @@
+using Catalog.Api.Grpc;
 using Catalog.Api.Middleware;
+using Catalog.Bll.Caching;
 using Catalog.Bll.Interfaces;
 using Catalog.Bll.Mapping;
 using Catalog.Bll.Services;
@@ -10,11 +12,36 @@ using Catalog.Dal.Seeding;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Aspire Service Defaults (Serilog, OpenTelemetry, HealthChecks, ServiceDiscovery, Resilience)
 builder.AddServiceDefaults();
+
+// Redis L2 Distributed Cache (Aspire component)
+builder.AddRedisDistributedCache("redis");
+
+// L1 Memory Cache з обмеженням розміру (SizeLimit) та відстеженням статистики
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 10_000;
+    options.CompactionPercentage = 0.25;
+    options.TrackStatistics = true;
+});
+
+// Дворівневий кеш (L1 + L2), фоновий прогрів та декоратор сервісів
+builder.Services.AddCatalogCaching();
+
+// Health Check кешу (Healthy якщо L1 і Redis живі, Degraded якщо тільки L1)
+builder.Services.AddHealthChecks().AddCheck<CacheHealthCheck>("cache", tags: ["ready"]);
+
+// gRPC сервер із сервером-перехоплювачем логування та кореляції
+builder.Services.AddGrpc(options =>
+{
+    options.Interceptors.Add<GrpcLoggingInterceptor>();
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
 
 // Реєстрація контролерів та Swagger/OpenAPI
 builder.Services.AddControllers();
@@ -70,9 +97,8 @@ builder.Services.AddScoped<IServiceCategoryRepository, ServiceCategoryRepository
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IPackageRepository, PackageRepository>();
 
-// Реєстрація BLL сервісів
+// Реєстрація BLL сервісів (IServiceService реєструється через AddCatalogCaching)
 builder.Services.AddScoped<IServiceCategoryService, ServiceCategoryService>();
-builder.Services.AddScoped<IServiceService, ServiceService>();
 builder.Services.AddScoped<IPackageService, PackageService>();
 
 var app = builder.Build();
@@ -94,6 +120,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 app.MapControllers();
+app.MapGrpcService<CatalogGrpcService>();
 app.MapDefaultEndpoints();
 
 // Автоматична міграція та сідінг БД під час запуску (для dev/staging середовищ)
