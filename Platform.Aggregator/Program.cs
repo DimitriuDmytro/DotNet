@@ -9,7 +9,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Aspire Service Defaults
 builder.AddServiceDefaults();
 
-// JSON серіалізація: camelCase та JsonIgnoreCondition.WhenWritingNull
+// ProblemDetails для стандартизованих помилок (AG-27)
+builder.Services.AddProblemDetails();
+
+// JSON серіалізація: camelCase та JsonIgnoreCondition.WhenWritingNull (AG-34)
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -26,7 +29,7 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Реєстрація типізованих HTTP-клієнтів до мікросервісів за логічними іменами через Aspire Service Discovery
+// Реєстрація типізованих HTTP-клієнтів до мікросервісів за логічними іменами через Aspire Service Discovery (AG-01, AG-03)
 builder.Services.AddHttpClient<OrdersClient>(c => c.BaseAddress = new("https+http://bookings-api"));
 builder.Services.AddHttpClient<CatalogClient>(c => c.BaseAddress = new("https+http://catalog-api"));
 builder.Services.AddHttpClient<ReviewsClient>(c => c.BaseAddress = new("https+http://reviews-api"));
@@ -38,6 +41,9 @@ var app = builder.Build();
 
 // CorrelationId Middleware
 app.UseMiddleware<CorrelationIdMiddleware>();
+
+// Обробка винятків у ProblemDetails
+app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {

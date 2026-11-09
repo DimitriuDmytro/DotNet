@@ -6,6 +6,17 @@ using Microsoft.Extensions.Logging;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Dtos;
 
+public class ServiceUnavailableException : Exception
+{
+    public ServiceUnavailableException(string serviceName, string message, Exception? innerException = null)
+        : base($"{serviceName} is unavailable: {message}", innerException)
+    {
+        ServiceName = serviceName;
+    }
+
+    public string ServiceName { get; }
+}
+
 public class OrderAggregationService
 {
     private static readonly ActivitySource Source = new("Platform.Aggregator");
@@ -33,12 +44,27 @@ public class OrderAggregationService
 
         var warnings = new ConcurrentBag<string>();
 
-        // 1. Отримання основної сутності — без неї 404
-        var appointment = await SafeExecuteAsync(
-            "bookings-api",
-            () => _ordersClient.GetAppointmentByIdAsync(appointmentId, cancellationToken),
-            warnings,
-            cancellationToken);
+        // 1. Отримання основної сутності:
+        // Якщо повернуто 404 — appointment == null (результат null -> 404 NotFound)
+        // Якщо сервіс недоступний / помилка мережі — кидаємо ServiceUnavailableException (результат -> 503)
+        AppointmentApiResponse? appointment;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            appointment = await _ordersClient.GetAppointmentByIdAsync(appointmentId, cancellationToken);
+            sw.Stop();
+            _logger.LogInformation("bookings-api responded in {ElapsedMs} ms", sw.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _logger.LogWarning(ex, "bookings-api is unavailable after {ElapsedMs} ms: {Message}", sw.ElapsedMilliseconds, ex.Message);
+            throw new ServiceUnavailableException("bookings-api", ex.Message, ex);
+        }
 
         if (appointment == null)
         {
@@ -56,10 +82,9 @@ public class OrderAggregationService
 
         var items = appointment.Items ?? new List<AppointmentItemApiResponse>();
 
-        // 2. Паралельні незалежні виклики до Catalog та Reviews для кожної позиції замовлення
+        // 2. Паралельні незалежні виклики до Catalog та Reviews для кожної позиції замовлення (AG-14, AG-15)
         var lineTasks = items.Select(async item =>
         {
-            // Перевірка узгодженості: serviceId > 0
             var productTask = SafeExecuteAsync(
                 "catalog-api",
                 () => _catalogClient.GetProductByIdAsync(item.ServiceId, cancellationToken),
@@ -81,10 +106,10 @@ public class OrderAggregationService
             var product = await productTask;
             var reviews = await reviewsTask ?? Array.Empty<ReviewDto>();
 
-            // Перевірка узгодженості: отриманий товар з каталогу повинен мати той самий id
+            // Перевірка узгодженості (AG-33): отриманий товар з каталогу повинен відповідати замовленій послузі
             if (product != null && product.Id != item.ServiceId)
             {
-                warnings.Add($"Невідповідність даних каталогу для послуги #{item.ServiceId}: отримано #{product.Id}");
+                warnings.Add($"catalog-api data inconsistency for service #{item.ServiceId}: received #{product.Id}");
                 product = null;
             }
 
@@ -103,7 +128,7 @@ public class OrderAggregationService
         return new FullOrderDto(
             orderSummary,
             lines.ToList(),
-            warnings.ToList());
+            warnings.OrderBy(w => w).ToList());
     }
 
     private async Task<T?> SafeExecuteAsync<T>(
@@ -117,25 +142,27 @@ public class OrderAggregationService
         {
             var result = await action();
             sw.Stop();
-            _logger.LogInformation("{Service} responded in {Elapsed} ms", serviceName, sw.ElapsedMilliseconds);
+            _logger.LogInformation("{Service} responded in {ElapsedMs} ms", serviceName, sw.ElapsedMilliseconds);
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Запит було скасовано клієнтом — прокидаємо далі
+            // Скасування запиту клієнтом не ковтається (AG-22)
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             sw.Stop();
+            // Повне логування винятку для внутрішньої діагностики
             _logger.LogWarning(
                 ex,
-                "Помилка виклику сервісу '{Service}' після {Elapsed} ms: {Message}",
+                "{Service} is unavailable after {ElapsedMs} ms: {Message}",
                 serviceName,
                 sw.ElapsedMilliseconds,
                 ex.Message);
 
-            warnings.Add($"Сервіс '{serviceName}' тимчасово недоступний або повернув помилку: {ex.Message}");
+            // Попередження для клієнта без розкриття внутрішніх деталей (AG-25)
+            warnings.Add($"{serviceName} is unavailable");
             return default;
         }
     }

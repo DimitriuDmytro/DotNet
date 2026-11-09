@@ -1,5 +1,6 @@
 namespace Platform.Aggregator.Clients;
 
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using Platform.Aggregator.Dtos;
@@ -18,9 +19,17 @@ public class ReviewsClient
     public async Task<IReadOnlyList<ReviewDto>> GetReviewsByServiceIdAsync(long serviceId, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Calling reviews-api for service #{ServiceId}", serviceId);
-        var paged = await _httpClient.GetFromJsonAsync<ReviewsPagedApiResponse>(
+        using var response = await _httpClient.GetAsync(
             $"/api/reviews?serviceId={serviceId}&page=1&pageSize=10",
             cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return Array.Empty<ReviewDto>();
+        }
+
+        response.EnsureSuccessStatusCode();
+        var paged = await response.Content.ReadFromJsonAsync<ReviewsPagedApiResponse>(cancellationToken: cancellationToken);
 
         if (paged?.Items == null)
         {

@@ -1,5 +1,6 @@
 namespace Platform.Aggregator.Clients;
 
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using Platform.Aggregator.Dtos;
@@ -18,8 +19,14 @@ public class CatalogClient
     public async Task<ProductDto?> GetProductByIdAsync(long id, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Calling catalog-api for product #{ProductId}", id);
-        return await _httpClient.GetFromJsonAsync<ProductDto>(
-            $"/api/services/{id}",
-            cancellationToken);
+        using var response = await _httpClient.GetAsync($"/api/services/{id}", cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ProductDto>(cancellationToken: cancellationToken);
     }
 }

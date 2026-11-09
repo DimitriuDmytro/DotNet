@@ -1,5 +1,6 @@
 namespace Platform.Aggregator.Clients;
 
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using Platform.Aggregator.Dtos;
@@ -18,8 +19,14 @@ public class OrdersClient
     public async Task<AppointmentApiResponse?> GetAppointmentByIdAsync(long id, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Calling bookings-api for appointment #{AppointmentId}", id);
-        return await _httpClient.GetFromJsonAsync<AppointmentApiResponse>(
-            $"/api/appointments/{id}",
-            cancellationToken);
+        using var response = await _httpClient.GetAsync($"/api/appointments/{id}", cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<AppointmentApiResponse>(cancellationToken: cancellationToken);
     }
 }
