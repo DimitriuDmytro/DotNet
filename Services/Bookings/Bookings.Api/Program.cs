@@ -37,6 +37,7 @@ builder.Services.AddGrpc(options =>
     options.Interceptors.Add<GrpcLoggingInterceptor>();
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
+builder.Services.AddGrpcReflection();
 
 // Реєстрація контролерів та документації Swagger/OpenAPI
 builder.Services.AddControllers();
@@ -94,6 +95,10 @@ app.UseSwaggerUI(c =>
 app.UseAuthorization();
 app.MapControllers();
 app.MapGrpcService<BookingsGrpcService>();
+if (app.Environment.IsDevelopment())
+{
+    app.MapGrpcReflectionService();
+}
 app.MapDefaultEndpoints();
 
 app.Run();

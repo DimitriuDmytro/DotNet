@@ -49,7 +49,7 @@ public sealed class GrpcOrderAggregationService : IOrderAggregationService
         activity?.SetTag("appointment.id", appointmentId);
         activity?.SetTag("aggregator.protocol", "gRPC");
 
-        var cacheKey = $"aggregator:order:{appointmentId}:full";
+        var cacheKey = AggregatorCacheKeys.FullOrder(appointmentId);
 
         // 1. Перевірка кешу агрегатора в Redis (якщо не передано noCache=true)
         if (!noCache)
@@ -88,7 +88,10 @@ public sealed class GrpcOrderAggregationService : IOrderAggregationService
         try
         {
             var request = new GetAppointmentRequest { Id = appointmentId };
-            appointment = await _bookingsClient.GetAppointmentAsync(request, cancellationToken: cancellationToken);
+            appointment = await _bookingsClient.GetAppointmentAsync(
+                request,
+                deadline: DateTime.UtcNow.AddSeconds(5),
+                cancellationToken: cancellationToken);
             sw.Stop();
             _logger.LogInformation("bookings-api gRPC responded in {ElapsedMs} ms", sw.ElapsedMilliseconds);
         }
@@ -129,7 +132,10 @@ public sealed class GrpcOrderAggregationService : IOrderAggregationService
                 async () =>
                 {
                     var req = new GetServiceRequest { Id = item.ServiceId };
-                    return await _catalogClient.GetServiceAsync(req, cancellationToken: cancellationToken);
+                    return await _catalogClient.GetServiceAsync(
+                        req,
+                        deadline: DateTime.UtcNow.AddSeconds(5),
+                        cancellationToken: cancellationToken);
                 },
                 warnings,
                 cancellationToken);
@@ -144,7 +150,10 @@ public sealed class GrpcOrderAggregationService : IOrderAggregationService
                         Page = 1,
                         PageSize = 20
                     };
-                    return await _reviewsClient.GetReviewsForServiceAsync(req, cancellationToken: cancellationToken);
+                    return await _reviewsClient.GetReviewsForServiceAsync(
+                        req,
+                        deadline: DateTime.UtcNow.AddSeconds(5),
+                        cancellationToken: cancellationToken);
                 },
                 warnings,
                 cancellationToken);

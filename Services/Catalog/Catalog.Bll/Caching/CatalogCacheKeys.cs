@@ -8,12 +8,13 @@ public static class CatalogCacheKeys
 
     public static string Service(long id) => $"catalog:service:{id}";
 
-    public static string ServicesPage(int page, int size, long? categoryId, string? search, string? sort, string version = "1")
+    public static string ServicesPage(int page, int size, long? categoryId, string? search, decimal? minPrice, decimal? maxPrice, string? sort, string version = "1")
     {
         var categoryPart = categoryId.HasValue ? categoryId.Value.ToString() : "all";
         var searchPart = string.IsNullOrWhiteSpace(search) ? "none" : search.Trim().ToLowerInvariant();
+        var pricePart = $"{minPrice?.ToString() ?? "min"}_{maxPrice?.ToString() ?? "max"}";
         var sortPart = string.IsNullOrWhiteSpace(sort) ? "default" : sort.Trim().ToLowerInvariant();
-        return $"catalog:services:v{version}:p{page}:s{size}:c{categoryPart}:q{searchPart}:sort{sortPart}";
+        return $"catalog:services:v{version}:p{page}:s{size}:c{categoryPart}:q{searchPart}:pr{pricePart}:sort{sortPart}";
     }
 
     public static string MinWarranty(int months) => $"catalog:services:warranty:{months}";

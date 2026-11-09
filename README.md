@@ -1599,3 +1599,52 @@ curl -i -k "https://localhost:7020/health"
 | **Холодний запит** | gRPC (HTTP/2) | Без кешу | **21.5 ms** (-38%) | 27.9 ms | 1,048 B (-60.6%) |
 | **Прогрітий запит** | gRPC / REST | L2 Redis | **2.6 ms** (13.4x) | 3.9 ms | — |
 | **Прогрітий запит** | Сервіс BLL | L1 Memory | **0.12 ms** (>150x)| 0.25 ms | — |
+
+---
+
+### 14.7. Експеримент сумісності Protobuf: зміна номерів полів (Field Tag Divergence)
+
+Згідно з правилами бінарної сумісності Google Protocol Buffers (Критерій 8, PB-10, RT-18), номери полів (`tag numbers`) кодуються безпосередньо у wire format бінарного повідомлення разом з типом дроту (wire type): `(field_number << 3) | wire_type`.
+
+**Хід експерименту:**
+1. У контракті `Services/Catalog/Catalog.Api/Protos/catalog.proto` у повідомленні `ServiceReply` тимчасово змінено номер поля `name`:
+   - Було: `string name = 3;`
+   - Змінено локально на: `string name = 10;` (лише на стороні сервера, без оновлення клієнта в Aggregator).
+2. Виконано виклик клієнта `Platform.Aggregator` до `CatalogService.GetService`.
+3. **Результат:** Клієнт очікував поле `name` під тегом 3, проте сервер надіслав його під тегом 10. Клієнтський парсер Protobuf пропустив тег 10 як невідоме поле (`unknown field`) і десеріалізував `name` як порожній рядок (`""`). При цьому помилки десеріалізації не виникло, але дані були втрачені/спотворені.
+4. **Висновок:** Номери полів у Protocol Buffers є незмінними ідентифікаторами контракту. Зміна номера поля є критичною порушенням бінарної сумісності. Всі початкові номери полів у контрактах збережено незмінними.
+
+---
+
+### 14.8. Сценарії ручної перевірки (Runtime Verification)
+
+1. **Два поспіль GET товару каталогу:**
+   - Перший запит: `GET http://localhost:5000/api/services/1` — промах кешу, звернення до SQL Server через EF Core, лог `Cache miss catalog:service:1 at L1`.
+   - Другий запит: повертається миттєво з L1 MemoryCache (< 1 ms), у Traces відсутній SQL-span `SELECT`, лог `Cache hit catalog:service:1 at L1`.
+2. **Перезапуск сервісу Catalog (L1 скинуто):**
+   - Той самий запит: влучання у L2 Redis Cache (лог `Cache hit catalog:service:1 at L2`), автоматичне заповнення L1 (Back-propagation).
+3. **Оновлення послуги (PUT) та перевірка інвалідації:**
+   - Після виконання `PUT /api/services/1` інвалідуються ключі `catalog:service:1` та версія списків `catalog:services:ver`. Наступний GET повертає свіжі оновлені дані.
+4. **Зупинка Redis (деградація):**
+   - Сервіс Catalog та Aggregator продовжують працювати через L1 та БД, запити не падають помилками 500/503. Статус health check на `/health` переходить у `Degraded`.
+5. **Агрегація замовлення через Gateway:**
+   - `GET http://localhost:5000/api/aggregator/orders/1/full` — Aggregator паралельно опитує `BookingsService`, `CatalogService` та `ReviewsService` по gRPC і кешує повну відповідь у Redis на 60с.
+
+---
+
+### 14.9. Оновлена структура рішень та проєктів (Лаб. 06)
+
+```text
+<корінь репозиторію>/
+├── Platform.slnx                ★ Єдине рішення платформи (всі сервіси, шлюз, агрегатор, тести)
+├── Platform.AppHost/            ★ Оркестратор .NET Aspire (AppHost.cs: Redis, SqlServer, MongoDB)
+├── Platform.ServiceDefaults/    ★ GrpcLoggingInterceptor, OpenTelemetry (Cache meters), Resilience
+├── Platform.ApiGateway/         ★ YARP Reverse Proxy (порт 5000)
+├── Platform.Aggregator/         ★ GrpcOrderAggregationService, GrpcClientLoggingInterceptor, Redis кеш агрегату
+├── docs/
+│   └── lab06/                   ★ benchmark.sh, benchmark.ps1, benchmark.md
+└── Services/
+    ├── Bookings/                ★ Сервіс «Записи» (bookings.proto, BookingsGrpcService, BookingsTwoLevelCache)
+    ├── Catalog/                 ★ Сервіс «Каталог» (catalog.proto, CatalogGrpcService, TwoLevelCache, Warmup)
+    └── Reviews/                 ★ Сервіс «Відгуки» (reviews.proto, ReviewsGrpcService, CachingBehavior, TwoLevelCache)
+```

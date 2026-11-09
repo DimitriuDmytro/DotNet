@@ -42,6 +42,7 @@ builder.Services.AddGrpc(options =>
     options.Interceptors.Add<GrpcLoggingInterceptor>();
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
+builder.Services.AddGrpcReflection();
 
 // Реєстрація контролерів та Swagger/OpenAPI
 builder.Services.AddControllers();
@@ -121,6 +122,10 @@ if (app.Environment.IsDevelopment())
 app.UseAuthorization();
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();
+if (app.Environment.IsDevelopment())
+{
+    app.MapGrpcReflectionService();
+}
 app.MapDefaultEndpoints();
 
 // Автоматична міграція та сідінг БД під час запуску (для dev/staging середовищ)

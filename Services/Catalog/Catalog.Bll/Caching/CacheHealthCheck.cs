@@ -33,7 +33,7 @@ public sealed class CacheHealthCheck : IHealthCheck
             if (stats is not null)
             {
                 data["L1.CurrentEntryCount"] = stats.CurrentEntryCount;
-                data["L1.CurrentEstimatedSize"] = stats.CurrentEstimatedSize;
+                data["L1.CurrentEstimatedSize"] = stats.CurrentEstimatedSize ?? 0;
                 data["L1.TotalHits"] = stats.TotalHits;
                 data["L1.TotalMisses"] = stats.TotalMisses;
             }

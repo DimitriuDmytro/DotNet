@@ -44,6 +44,7 @@ builder.Services.AddGrpc(options =>
     options.Interceptors.Add<GrpcLoggingInterceptor>();
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
+builder.Services.AddGrpcReflection();
 
 // ProblemDetails та централізований обробник помилок (Критерій 13)
 builder.Services.AddProblemDetails();
@@ -82,6 +83,10 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapGrpcService<ReviewsGrpcService>();
+if (app.Environment.IsDevelopment())
+{
+    app.MapGrpcReflectionService();
+}
 app.MapDefaultEndpoints();
 
 // Ідемпотентне наповнення початковими даними при запуску (Критерій 14)
