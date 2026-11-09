@@ -1,15 +1,42 @@
+using Bookings.Api.Grpc;
 using Bookings.Api.Middleware;
+using Bookings.Bll.Caching;
 using Bookings.Bll.Interfaces;
 using Bookings.Bll.Mapping;
 using Bookings.Bll.Services;
 using Bookings.Dal.Interfaces;
 using Bookings.Dal.Repositories;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Aspire Service Defaults (Serilog, OpenTelemetry, HealthChecks, ServiceDiscovery, Resilience)
 builder.AddServiceDefaults();
+
+// Redis L2 Distributed Cache
+builder.AddRedisDistributedCache("redis");
+
+// L1 Memory Cache з обмеженням розміру (SizeLimit) та відстеженням статистики
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 10_000;
+    options.CompactionPercentage = 0.25;
+    options.TrackStatistics = true;
+});
+
+// Дворівневий кеш бронювань (L1 + L2) та декоратор сервісів
+builder.Services.AddBookingsCaching();
+
+// Health Check кешу
+builder.Services.AddHealthChecks().AddCheck<BookingsCacheHealthCheck>("cache", tags: ["ready"]);
+
+// gRPC сервер із сервером-перехоплювачем логування та кореляції
+builder.Services.AddGrpc(options =>
+{
+    options.Interceptors.Add<GrpcLoggingInterceptor>();
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
 
 // Реєстрація контролерів та документації Swagger/OpenAPI
 builder.Services.AddControllers();
@@ -45,8 +72,8 @@ builder.Services.AddScoped<IUnitOfWork>(sp =>
 });
 
 // Реєстрація сервісів бізнес-логіки (BLL)
+// (IAppointmentService реєструється через AddBookingsCaching як CachedAppointmentService)
 builder.Services.AddScoped<IClientService, ClientService>();
-builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICatalogQueryService, CatalogQueryService>();
 
@@ -66,6 +93,7 @@ app.UseSwaggerUI(c =>
 
 app.UseAuthorization();
 app.MapControllers();
+app.MapGrpcService<BookingsGrpcService>();
 app.MapDefaultEndpoints();
 
 app.Run();
