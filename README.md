@@ -1286,3 +1286,204 @@ Builders<Review>.Filter.And(
 - Відсутність витоку конфіденційної інформації стек-трейсу в середовищі `Production`.
 - Додавання ідентифікатора трасування `traceId` до кожної помилки.
 - Усунення дублювання записів у системних журналах (рівно один структурований лог на кожен виняток).
+
+
+---
+
+## 13. Практичне заняття №05: Мікросервісна платформа на .NET Aspire (YARP Gateway, Aggregator, Serilog, OpenTelemetry)
+
+### 13.1. Архітектура платформи
+У Лабораторній роботі №05 три незалежні мікросервіси попередніх робіт інтегровано в єдину розподілену платформу під керуванням **.NET Aspire**:
+
+```mermaid
+graph TD
+    Client["Зовнішній клієнт / SPA / Mobile"] -->|HTTP :5000| Gateway["Platform.ApiGateway\n(YARP Reverse Proxy, Port 5000)"]
+    
+    Gateway -->|/api/aggregator/*| Aggregator["Platform.Aggregator\n(Композитна бізнес-агрегація)"]
+    Gateway -->|/api/appointments/*, /api/clients/*| BookingsApi["bookings-api\n(SQL Server, ADO.NET + Dapper)"]
+    Gateway -->|/api/services/*, /api/categories/*, /api/packages/*| CatalogApi["catalog-api\n(SQL Server, EF Core)"]
+    Gateway -->|/api/reviews/*| ReviewsApi["reviews-api\n(MongoDB, Clean Architecture)"]
+
+    Aggregator -->|Typed HttpClient| BookingsApi
+    Aggregator -->|Typed HttpClient| CatalogApi
+    Aggregator -->|Typed HttpClient| ReviewsApi
+
+    BookingsApi --> BookingsDb[("SQL Server: BookingsDb")]
+    CatalogApi --> CatalogDb[("SQL Server: CatalogDb")]
+    ReviewsApi --> ReviewsDb[("MongoDB: ReviewsDb")]
+
+    AppHost["Platform.AppHost\n(Aspire Orchestrator)"] -.->|Orchestrates| Gateway
+    AppHost -.->|Orchestrates| Aggregator
+    AppHost -.->|Orchestrates| BookingsApi
+    AppHost -.->|Orchestrates| CatalogApi
+    AppHost -.->|Orchestrates| ReviewsApi
+```
+
+### 13.2. Таблиця ресурсів AppHost (`Platform.AppHost`)
+
+| Ім'я ресурсу | Тип ресурсу | Проєкт / Контейнер | База даних / Посилання | Залежності запуску (`WaitFor`) |
+| :--- | :--- | :--- | :--- | :--- |
+| `sql` | SQL Server | Контейнер SQL Server | — | — |
+| `BookingsDb` | Database | Ресурс БД у SQL Server | `sql` | `sql` |
+| `CatalogDb` | Database | Ресурс БД у SQL Server | `sql` | `sql` |
+| `mongo` | MongoDB | Контейнер MongoDB 7.0 | — | — |
+| `ReviewsDb` | Database | Ресурс БД у MongoDB | `mongo` | `mongo` |
+| `bookings-api` | Project | `Services/Bookings/Bookings.Api` | `BookingsDb` | `WaitFor(BookingsDb)` |
+| `catalog-api` | Project | `Services/Catalog/Catalog.Api` | `CatalogDb` | `WaitFor(CatalogDb)` |
+| `reviews-api` | Project | `Services/Reviews/Reviews.WebApi` | `ReviewsDb` | `WaitFor(ReviewsDb)` |
+| `aggregator` | Project | `Platform.Aggregator` | `bookings-api`, `catalog-api`, `reviews-api` | `WaitFor(bookings)`, `WaitFor(catalog)`, `WaitFor(reviews)` |
+| `gateway` | Project | `Platform.ApiGateway` (Порт 5000) | Всі сервіси + Aggregator | `WaitFor(aggregator)` |
+
+### 13.3. Вимоги та передумови (Prerequisites)
+- **.NET SDK 9.0** (`9.0.318` або вище)
+- **Docker Desktop** (запущений для підтримки контейнерів БД та Aspire DCP)
+
+### 13.4. Налаштування секретів та запуск платформи
+
+Згідно з безпековими правилами платформи, пароль адміністратора SQL Server не зберігається в коді чи файлах конфігурації, а передається через `User Secrets` або змінні оточення:
+
+#### 1. Встановлення пароля SQL Server:
+```powershell
+dotnet user-secrets set "Parameters:sql-password" "ChangeMe_StrongPass123!" --project Platform.AppHost
+```
+
+#### 2. Запуск усієї платформи через Aspire AppHost:
+```powershell
+dotnet run --project Platform.AppHost/Platform.AppHost.csproj
+```
+
+Після запуску у консолі відобразиться посилання на **Aspire Dashboard** (наприклад `http://localhost:15000` або подібне з токеном авторизації), де доступні:
+- **Resources:** стан запуску всіх контейнерів, мікросервісів, Aggregator та Gateway (`Running`).
+- **Structured Logs:** централізовані логи Serilog у форматі Compact JSON.
+- **Traces:** розподілені OTel-траси запитів крізь Gateway $\rightarrow$ Aggregator $\rightarrow$ мікросервіси $\rightarrow$ БД.
+- **Metrics:** споживання ресурсів, тривалість запитів та лічильники HTTP.
+
+### 13.5. Адресація та маршрутизація через Gateway (порт 5000)
+
+Усі клієнтські запити надсилаються на єдину вхідну точку — **`http://localhost:5000`**:
+
+#### 1. Перевірка роботи Gateway та отримання кореляційного ID (`X-Correlation-Id`):
+```bash
+curl -i -X GET "http://localhost:5000/api/appointments/1"
+```
+У відповіді обов'язково присутній заголовок `X-Correlation-Id`, наприклад:
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+X-Correlation-Id: e1a3b5c7-9876-4321-a1b2-c3d4e5f67890
+```
+
+#### 2. Отримання композитної картки замовлення через Aggregator:
+```bash
+curl -i -X GET "http://localhost:5000/api/aggregator/orders/1/full"
+```
+Приклад успішної агрегованої відповіді (`200 OK`):
+```json
+{
+  "order": {
+    "id": 1,
+    "clientId": 1,
+    "clientName": "Олександр Коваленко",
+    "scheduledAt": "2026-10-15T10:00:00Z",
+    "status": "Booked",
+    "carInfo": "BMW X5 G05",
+    "totalAmount": 12000.00
+  },
+  "lines": [
+    {
+      "serviceId": 7,
+      "serviceName": "Керамічне покриття кузова 9H",
+      "unitPrice": 12000.00,
+      "quantity": 1,
+      "discount": 0.00,
+      "product": {
+        "id": 7,
+        "categoryId": 2,
+        "name": "Керамічне покриття кузова 9H",
+        "price": 12000.00,
+        "durationMin": 480
+      },
+      "reviews": [
+        {
+          "id": "670900000000000000000301",
+          "serviceId": 7,
+          "serviceName": "Керамічне покриття кузова 9H",
+          "rating": 5,
+          "title": "Неймовірний дзеркальний блиск на чорному BMW X5!",
+          "authorName": "Олександр Коваленко",
+          "createdAt": "2026-10-03T09:30:00Z"
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}
+```
+
+#### 3. Перевірка стійкості до часткових відмов (Graceful Degradation):
+Якщо зупинити мікросервіс `reviews-api` в Aspire Dashboard або через CLI, запит до агрегатора **не повертає помилку 500**. Замість цього клієнт отримує статус `200 OK` з доступними даними замовлення та товару і попередженням у масиві `warnings`:
+```json
+{
+  "order": { "id": 1, ... },
+  "lines": [
+    {
+      "serviceId": 7,
+      "product": { "id": 7, ... },
+      "reviews": []
+    }
+  ],
+  "warnings": [
+    "Сервіс 'reviews-api' тимчасово недоступний або повернув помилку: ..."
+  ]
+}
+```
+
+#### 4. Запити через Gateway до інших сервісів (CRUD):
+- **Створення запису (POST):**
+  ```bash
+  curl -i -X POST "http://localhost:5000/api/appointments" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "clientId": 1,
+      "scheduledAt": "2026-11-20T14:00:00Z",
+      "carBrand": "Audi",
+      "carModel": "Q7",
+      "plateNumber": "AA1234BB",
+      "items": [{ "serviceId": 1, "quantity": 1, "discount": 0 }]
+    }'
+  ```
+- **Отримання каталогу послуг (GET):**
+  ```bash
+  curl -i -X GET "http://localhost:5000/api/services?page=1&pageSize=5"
+  ```
+- **Створення відгуку у MongoDB (POST):**
+  ```bash
+  curl -i -X POST "http://localhost:5000/api/reviews" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "serviceId": 1,
+      "serviceName": "Двофазна мийка",
+      "rating": 5,
+      "title": "Швидко і чисто",
+      "text": "Відмінний результат мийки.",
+      "authorClientId": 2,
+      "authorFullName": "Марина Шевченко"
+    }'
+  ```
+
+---
+
+### 13.6. Оновлена структура рішень та проєктів
+
+```text
+<корінь репозиторію>/
+├── Platform.slnx                ★ Єдине рішення платформи (всі сервіси, шлюз, агрегатор, тести)
+├── Platform.AppHost/            ★ Оркестратор .NET Aspire (AppHost.cs, ресурси БД, waitFor, порти)
+├── Platform.ServiceDefaults/    ★ Extensions.cs: Serilog, OpenTelemetry, Resilience, Health, CorrelationId
+├── Platform.ApiGateway/         ★ YARP Reverse Proxy, фіксований порт 5000, CorrelationId, Dockerfile
+├── Platform.Aggregator/         ★ Сервіс агрегації повної картки замовлення, часткові відмови, клієнти
+└── Services/
+    ├── Bookings/                ★ Сервіс «Записи» (SQL Server + ADO.NET / Dapper)
+    ├── Catalog/                 ★ Сервіс «Каталог послуг» (SQL Server + EF Core Code First)
+    └── Reviews/                 ★ Сервіс «Відгуки та звіти» (MongoDB + Clean Architecture + CQRS)
+```
