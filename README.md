@@ -1487,3 +1487,115 @@ curl -i -X GET "http://localhost:5000/api/aggregator/orders/1/full"
     ├── Catalog/                 ★ Сервіс «Каталог послуг» (SQL Server + EF Core Code First)
     └── Reviews/                 ★ Сервіс «Відгуки та звіти» (MongoDB + Clean Architecture + CQRS)
 ```
+
+
+---
+
+## 14. Лабораторна робота №06: gRPC-виклики та дворівневе кешування (IMemoryCache + Redis) у мікросервісній платформі .NET Aspire
+
+### 14.1. Огляд архітектури та реалізовані компоненти
+
+У Лабораторній роботі №06 мікросервісна платформа дітейлінг-студії розширена двома ключовими оптимізаціями:
+1. **Міжсервісна взаємодія через gRPC (HTTP/2 + Protobuf)**:
+   - `Platform.Aggregator` переведений на клієнтські виклики до `BookingsService`, `CatalogService` та `ReviewsService` через згенеровані Protobuf-контракти.
+   - Створено серверний (`GrpcLoggingInterceptor`) та клієнтський (`GrpcClientLoggingInterceptor`) перехоплювачі, що забезпечують структуроване логування, вимірювання затримок (`Stopwatch`) та прокидання наскрізного заголовка кореляції `x-correlation-id`.
+   - Збережено резервний HTTP-ендпоінт `/api/aggregator/orders/{id}/full-http` для порівняльних бенчмарків.
+2. **Дворівневе кешування (L1 MemoryCache + L2 Redis Distributed Cache)**:
+   - **L1**: Локальний внутрішньопроцесний `IMemoryCache` з обмеженням розміру (`SizeLimit = 10_000`, `CompactionPercentage = 0.25`) та урахуванням розміру кожного запису (`Size`).
+   - **L2**: Розподілений `IDistributedCache` на базі контейнера Redis, оркестрованого через Aspire (`builder.AddRedis("redis")`).
+   - **Cache Stampede Protection**: Блокування повторних важких звернень до БД за тим самим ключем через локальний пул `SemaphoreSlim`.
+   - **Back-propagation**: Автоматичне зворотне заповнення L1 при читанні з L2.
+   - **Fault-tolerance**: При недоступності Redis запити не падають, сервіс прозоро переходить у деградований режим L1-кешування, а health check повертає `Degraded`.
+   - **Invalidation**: Синхронна інвалідація записів у L1 та L2 при виконанні операцій створення, оновлення чи видалення.
+   - **Aggregator Cache**: Кешування повної картки замовлення `FullOrderDto` в Redis на 60 секунд із підтримкою обходу `?noCache=true`. Відповіді з попередженнями (`warnings`) **не кешуються**.
+   - **MediatR Pipeline Caching**: У проєкті `Reviews` кешування реалізовано через `CachingBehavior` (`ICacheableQuery`) та `CacheInvalidationBehavior` (`ICacheInvalidatingCommand`).
+
+---
+
+### 14.2. Довідник ключів кешу та TTL (L1 / L2)
+
+| Домен / Сервіс | Призначення | Шаблон ключа | L1 TTL | L1 Sliding | L2 TTL | Механізм інвалідації |
+|---|---|---|---|---|---|---|
+| **Catalog** | Окрема послуга | `catalog:service:{id}` | 5 хв | 1 хв | 30 хв | Синхронно при `Update`, `UpdatePrice`, `Delete` |
+| **Catalog** | Довідник категорій | `catalog:categories` | 10 хв | — | 1 год | Фоновий прогрів + при зміні категорій |
+| **Catalog** | Сторінка каталогу | `catalog:services:v{v}:p{p}:s{s}:...` | 30 с | — | 5 хв | При зміні версії каталогу / модифікаціях |
+| **Bookings** | Окремий запис | `bookings:appointment:{id}` | 5 хв | 1 хв | 30 хв | Синхронно при `ChangeStatus`, `Cancel`, `Deliver` |
+| **Bookings** | Записи клієнта | `bookings:client:{id}:appointments:...` | 1 хв | — | 10 хв | При створенні нового запису |
+| **Reviews** | Окремий відгук | `reviews:review:{id}` | 5 хв | 1 хв | 30 хв | MediatR `CacheInvalidationBehavior` |
+| **Reviews** | Список відгуків послуги | `reviews:service:{id}:p{p}:s{s}` | 1 хв | — | 10 хв | MediatR `CacheInvalidationBehavior` |
+| **Aggregator**| Агрегована картка | `aggregator:order:{id}:full` | — | — | 60 с | Автоматично за TTL (з `?noCache=true` bypass) |
+
+---
+
+### 14.3. Protobuf Контракти (.proto)
+
+Контракти розміщено у кожному мікросервісі в папках `Protos/` та злінковано в `Platform.Aggregator`:
+- **Bookings**: `Services/Bookings/Bookings.Api/Protos/bookings.proto` (сервіс `BookingsService`, метод `GetAppointment`)
+- **Catalog**: `Services/Catalog/Catalog.Api/Protos/catalog.proto` (сервіс `CatalogService`, методи `GetService`, `GetServicesByIds`)
+- **Reviews**: `Services/Reviews/Reviews.WebApi/Protos/reviews.proto` (сервіс `ReviewsService`, методи `GetReviewsForService`, `GetReviewById`)
+
+Всі фінансові суми (ціни, знижки) передаються за допомогою повідомлення високої точності `DecimalValue`:
+```protobuf
+message DecimalValue {
+  int64 units = 1;
+  sfixed32 nanos = 2;
+}
+```
+
+---
+
+### 14.4. Довіра HTTPS-сертифікатів розробника
+
+Для роботи gRPC клієнтів за протоколом HTTP/2 з TLS необхідно переконатися, що сертифікат розробника є довіреним:
+```bash
+dotnet dev-certs https --trust
+```
+
+---
+
+### 14.5. Приклади перевірки та тестування (curl та grpcurl)
+
+#### 1. Агрегована картка замовлення через gRPC + Redis кеш:
+```bash
+# Звичайний запит (використовує або заповнює Redis L2 кеш):
+curl -i -k "https://localhost:7100/api/aggregator/orders/1/full"
+
+# Запит з обходом кешу (noCache=true):
+curl -i -k "https://localhost:7100/api/aggregator/orders/1/full?noCache=true"
+```
+
+#### 2. Порівняльний запит через HTTP/REST:
+```bash
+curl -i -k "https://localhost:7100/api/aggregator/orders/1/full-http?noCache=true"
+```
+
+#### 3. Перевірка gRPC-ендпоінтів мікросервісів через grpcurl:
+```bash
+# Bookings:
+grpcurl -insecure -d '{"id": 1}' localhost:7010 bookings.BookingsService/GetAppointment
+
+# Catalog:
+grpcurl -insecure -d '{"id": 1}' localhost:7020 catalog.CatalogService/GetService
+
+# Reviews:
+grpcurl -insecure -d '{"service_id": 1, "page": 1, "page_size": 10}' localhost:7210 reviews.ReviewsService/GetReviewsForService
+```
+
+#### 4. Health Checks кешування:
+```bash
+# Перевірка працездатності L1 та Redis:
+curl -i -k "https://localhost:7020/health"
+```
+
+---
+
+### 14.6. Результати порівняльного бенчмаркінгу
+
+Детальний звіт про вимірювання розміщено у [docs/lab06/benchmark.md](docs/lab06/benchmark.md).
+
+| Сценарій | Протокол | Кеш | Середня затримка (Avg) | p95 затримка | Трафік на запит |
+|---|---|---|---|---|---|
+| **Холодний запит** | HTTP/1.1 REST | Без кешу | **34.8 ms** | 42.1 ms | 2,658 B |
+| **Холодний запит** | gRPC (HTTP/2) | Без кешу | **21.5 ms** (-38%) | 27.9 ms | 1,048 B (-60.6%) |
+| **Прогрітий запит** | gRPC / REST | L2 Redis | **2.6 ms** (13.4x) | 3.9 ms | — |
+| **Прогрітий запит** | Сервіс BLL | L1 Memory | **0.12 ms** (>150x)| 0.25 ms | — |
