@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+option csharp_namespace = "Bookings.Grpc";
+
+package bookings;
+
+import "google/protobuf/timestamp.proto";
+
+// Сервіс для отримання даних записів на детейлінг через gRPC
+service BookingsService {
+  // Отримання запису за його числовим ID
+  rpc GetAppointment (GetAppointmentRequest) returns (AppointmentReply);
+}
+
+// Запит на отримання запису
+message GetAppointmentRequest {
+  int64 id = 1;
+}
+
+// Позиція запису на послугу детейлінгу
+message AppointmentItemReply {
+  int64 id = 1;
+  int64 service_id = 2;
+  string service_name = 3;
+  DecimalValue unit_price = 4;
+  int32 quantity = 5;
+  DecimalValue discount = 6;
+}
+
+// Детальна інформація про запис на детейлінг
+message AppointmentReply {
+  int64 id = 1;
+  int64 client_id = 2;
+  string client_full_name = 3;
+  google.protobuf.Timestamp scheduled_at = 4;
+  string status = 5;
+  string car_brand = 6;
+  string car_model = 7;
+  DecimalValue total_amount = 8;
+  repeated AppointmentItemReply items = 9;
+}
+
+// Представлення десяткового числа з високою точністю для фінансових даних
+message DecimalValue {
+  int64 units = 1;
+  sfixed32 nanos = 2;
+}

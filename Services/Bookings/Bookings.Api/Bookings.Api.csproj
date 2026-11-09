@@ -8,8 +8,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" Version="9.1.0" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\bookings.proto" GrpcServices="Server" />
   </ItemGroup>
 
   <PropertyGroup>

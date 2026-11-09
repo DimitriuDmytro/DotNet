@@ -9,6 +9,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
@@ -17,7 +18,7 @@ namespace Microsoft.Extensions.Hosting;
 
 /// <summary>
 /// Розширення для конфігурації загальних сервісів платформи Aspire:
-/// Serilog, OpenTelemetry, Service Discovery, Health Checks, Resilience та CorrelationId.
+/// Serilog, OpenTelemetry, Service Discovery, Health Checks, Resilience, CorrelationId та gRPC.
 /// </summary>
 public static class Extensions
 {
@@ -53,6 +54,7 @@ public static class Extensions
         builder.Services.AddServiceDiscovery();
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddTransient<CorrelationIdHandler>();
+        builder.Services.AddSingleton<GrpcLoggingInterceptor>();
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
@@ -91,18 +93,23 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    .AddMeter("Catalog.Cache", "Bookings.Cache", "Reviews.Cache", "Aggregator.Cache");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddSource("Bookings.Bll")
                     .AddSource("Bookings.Api")
+                    .AddSource("Bookings.Cache")
                     .AddSource("Catalog.Bll")
                     .AddSource("Catalog.Api")
+                    .AddSource("Catalog.Cache")
                     .AddSource("Reviews.Application")
                     .AddSource("Reviews.WebApi")
+                    .AddSource("Reviews.Cache")
                     .AddSource("Platform.Aggregator")
+                    .AddSource("Platform.Aggregator.Cache")
                     .AddSource("Platform.ApiGateway")
                     .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
                     .AddAspNetCoreInstrumentation(opt =>

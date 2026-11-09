@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+option csharp_namespace = "Catalog.Grpc";
+
+package catalog;
+
+// Сервіс для роботи з каталогом послуг детейлінгу через gRPC
+service CatalogService {
+  // Отримання інформації про послугу за її числовим ID
+  rpc GetService (GetServiceRequest) returns (ServiceReply);
+
+  // Пакетне отримання кількох послуг за списком ID
+  rpc GetServicesByIds (GetServicesByIdsRequest) returns (ServicesReply);
+}
+
+// Запит на отримання послуги за ID
+message GetServiceRequest {
+  int64 id = 1;
+}
+
+// Запит на пакетне отримання послуг за списком ID
+message GetServicesByIdsRequest {
+  repeated int64 ids = 1;
+}
+
+// Деталі послуги каталогу
+message ServiceReply {
+  int64 id = 1;
+  int64 category_id = 2;
+  string name = 3;
+  DecimalValue price = 4;
+  int32 duration_minutes = 5;
+  string description = 6;
+  bool is_active = 7;
+}
+
+// Відповідь з переліком послуг каталогу
+message ServicesReply {
+  repeated ServiceReply services = 1;
+}
+
+// Представлення десяткового числа з високою точністю для цін
+message DecimalValue {
+  int64 units = 1;
+  sfixed32 nanos = 2;
+}

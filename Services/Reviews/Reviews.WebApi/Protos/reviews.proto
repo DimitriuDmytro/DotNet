@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+option csharp_namespace = "Reviews.Grpc";
+
+package reviews;
+
+import "google/protobuf/timestamp.proto";
+
+// Сервіс для роботи з відгуками та оцінками послуг через gRPC
+service ReviewsService {
+  // Отримання списку відгуків для конкретної послуги каталогу
+  rpc GetReviewsForService (GetReviewsForServiceRequest) returns (ReviewsReply);
+
+  // Отримання конкретного відгуку за його MongoDB ObjectId
+  rpc GetReviewById (GetReviewByIdRequest) returns (ReviewReply);
+}
+
+// Запит на отримання відгуків за ідентифікатором послуги
+message GetReviewsForServiceRequest {
+  int64 service_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+// Запит на отримання відгуку за рядковим MongoDB ObjectId
+message GetReviewByIdRequest {
+  string id = 1;
+}
+
+// Дані відгуку
+message ReviewReply {
+  string id = 1;
+  int64 service_id = 2;
+  string service_name = 3;
+  int32 rating = 4;
+  string title = 5;
+  string text = 6;
+  string author_name = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// Відповідь зі списком відгуків
+message ReviewsReply {
+  repeated ReviewReply reviews = 1;
+  int32 total_count = 2;
+}

@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
+    <PackageReference Include="Grpc.AspNetCore.Server" Version="2.67.0" />
 
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.2.0" />
     <PackageReference Include="Microsoft.Extensions.ServiceDiscovery" Version="9.1.0" />
