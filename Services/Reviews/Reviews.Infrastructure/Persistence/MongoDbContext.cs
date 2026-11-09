@@ -1,20 +1,28 @@
 namespace Reviews.Infrastructure.Persistence;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
 
 /// <summary>
-/// Контекст бази даних MongoDB (Критерій 10).
+/// Контекст бази даних MongoDB (Критерій 10) з підтримкою OpenTelemetry DiagnosticSources.
 /// </summary>
 public class MongoDbContext
 {
     private readonly IMongoDatabase _database;
 
-    public MongoDbContext(IOptions<MongoDbOptions> options)
+    public MongoDbContext(IOptions<MongoDbOptions> options, IConfiguration? configuration = null)
     {
         MongoMappings.Register();
 
-        var clientSettings = MongoClientSettings.FromConnectionString(options.Value.ConnectionString);
+        // Дозволяємо перевизначення рядка підключення через стандартний GetConnectionString("ReviewsDb")
+        var connectionString = configuration?.GetConnectionString("ReviewsDb")
+            ?? options.Value.ConnectionString;
+
+        var clientSettings = MongoClientSettings.FromConnectionString(connectionString);
+        clientSettings.ClusterConfigurator = cb => cb.Subscribe(new DiagnosticsActivityEventSubscriber());
+
         var client = new MongoClient(clientSettings);
         _database = client.GetDatabase(options.Value.DatabaseName);
     }

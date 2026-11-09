@@ -1,6 +1,9 @@
 namespace Reviews.Application.Reviews.Commands.CreateReview;
 
+using System.Diagnostics;
 using MediatR;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 
 /// <summary>
@@ -9,15 +12,29 @@ using MongoDB.Bson;
 /// </summary>
 public class CreateReviewCommandHandler : IRequestHandler<CreateReviewCommand, string>
 {
+    private static readonly ActivitySource Source = new("Reviews.Application");
     private readonly IReviewRepository _reviewRepository;
+    private readonly ILogger<CreateReviewCommandHandler> _logger;
 
-    public CreateReviewCommandHandler(IReviewRepository reviewRepository)
+    public CreateReviewCommandHandler(IReviewRepository reviewRepository, ILogger<CreateReviewCommandHandler>? logger = null)
     {
         _reviewRepository = reviewRepository;
+        _logger = logger ?? NullLogger<CreateReviewCommandHandler>.Instance;
     }
 
     public async Task<string> Handle(CreateReviewCommand request, CancellationToken cancellationToken)
     {
+        using var activity = Source.StartActivity("CreateReview");
+        activity?.SetTag("service.id", request.ServiceId);
+        activity?.SetTag("client.id", request.AuthorClientId);
+        activity?.SetTag("review.rating", request.Rating);
+
+        _logger.LogInformation(
+            "Створення відгуку від клієнта #{ClientId} для послуги #{ServiceId} з оцінкою {Rating}",
+            request.AuthorClientId,
+            request.ServiceId,
+            request.Rating);
+
         var author = new Author(request.AuthorClientId, request.AuthorFullName, request.AuthorCarInfo);
 
         ObjectId? discussionId = null;
@@ -53,6 +70,9 @@ public class CreateReviewCommandHandler : IRequestHandler<CreateReviewCommand, s
         }
 
         await _reviewRepository.AddAsync(review, cancellationToken);
+
+        activity?.SetTag("review.id", review.Id.ToString());
+        _logger.LogInformation("Відгук {ReviewId} успішно збережено у MongoDB", review.Id);
 
         return review.Id.ToString();
     }

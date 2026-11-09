@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Platform.ServiceDefaults;
 using Reviews.Application;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Persistence;
@@ -8,14 +9,8 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Налаштування Serilog (Критерій 9)
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
-    .CreateLogger();
-
-builder.Host.UseSerilog();
+// Aspire Service Defaults (Serilog, OpenTelemetry, HealthChecks, ServiceDiscovery, Resilience)
+builder.AddServiceDefaults();
 
 // Реєстрація шарів Clean Architecture (Критерій 1, 7, 10)
 builder.Services.AddApplication(builder.Configuration);
@@ -43,7 +38,7 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// Health Checks для MongoDB (Критерій 14)
+// Health Checks для MongoDB
 builder.Services.AddHealthChecks()
     .AddMongoDb(
         sp => sp.GetRequiredService<MongoDbContext>().Database,
@@ -52,7 +47,9 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-app.UseSerilogRequestLogging();
+// CorrelationId middleware одразу після Build
+app.UseMiddleware<CorrelationIdMiddleware>();
+
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
@@ -62,7 +59,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+app.MapDefaultEndpoints();
 
 // Ідемпотентне наповнення початковими даними при запуску (Критерій 14)
 var mongoOptions = app.Services.GetRequiredService<IOptions<MongoDbOptions>>().Value;

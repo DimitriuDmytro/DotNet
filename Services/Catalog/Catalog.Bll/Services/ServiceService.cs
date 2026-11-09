@@ -1,5 +1,6 @@
 namespace Catalog.Bll.Services;
 
+using System.Diagnostics;
 using AutoMapper;
 using Catalog.Bll.DTOs;
 using Catalog.Bll.Interfaces;
@@ -7,16 +8,21 @@ using Catalog.Dal.Interfaces;
 using Catalog.Dal.Specifications;
 using Catalog.Domain.Entities;
 using Catalog.Domain.Exceptions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 public class ServiceService : IServiceService
 {
+    private static readonly ActivitySource Source = new("Catalog.Bll");
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
+    private readonly ILogger<ServiceService> _logger;
 
-    public ServiceService(IUnitOfWork unitOfWork, IMapper mapper)
+    public ServiceService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ServiceService>? logger = null)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+        _logger = logger ?? NullLogger<ServiceService>.Instance;
     }
 
     public async Task<PagedResult<ServiceDto>> GetPagedAsync(ServiceQuery query, CancellationToken cancellationToken = default)
@@ -79,6 +85,14 @@ public class ServiceService : IServiceService
 
     public async Task<ServiceDetailDto> CreateAsync(CreateServiceDto dto, CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("CreateCatalogService");
+        activity?.SetTag("service.name", dto.Name);
+        activity?.SetTag("category.id", dto.CategoryId);
+        activity?.SetTag("service.price", dto.Price);
+
+        _logger.LogInformation("Створення нової послуги каталогу '{ServiceName}' (категорія #{CategoryId}, ціна {Price} грн)",
+            dto.Name, dto.CategoryId, dto.Price);
+
         if (await _unitOfWork.Services.ExistsByNameAsync(dto.Name, cancellationToken: cancellationToken))
         {
             throw new ConflictException($"Послуга з назвою '{dto.Name}' уже існує в каталозі.");
@@ -109,6 +123,9 @@ public class ServiceService : IServiceService
 
         await _unitOfWork.Services.AddAsync(service, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        activity?.SetTag("service.id", service.Id);
+        _logger.LogInformation("Послугу #{ServiceId} '{ServiceName}' успішно створено", service.Id, service.Name);
 
         return await GetByIdAsync(service.Id, cancellationToken);
     }

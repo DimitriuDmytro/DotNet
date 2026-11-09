@@ -9,22 +9,14 @@ using Catalog.Dal.Repositories;
 using Catalog.Dal.Seeding;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
-using Serilog.Events;
+using Platform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Налаштування структурного логування Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Information)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{CorrelationId}] {Message:lj}{NewLine}{Exception}")
-    .CreateLogger();
+// Aspire Service Defaults (Serilog, OpenTelemetry, HealthChecks, ServiceDiscovery, Resilience)
+builder.AddServiceDefaults();
 
-builder.Host.UseSerilog();
-
-// 2. Реєстрація контролерів та Swagger/OpenAPI
+// Реєстрація контролерів та Swagger/OpenAPI
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -37,11 +29,11 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// 3. RFC 7807 ProblemDetails & DomainExceptionHandler
+// RFC 7807 ProblemDetails & DomainExceptionHandler
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 
-// 4. AutoMapper (профілі BLL + необов'язковий ключ ліцензії)
+// AutoMapper (профілі BLL + необов'язковий ключ ліцензії)
 builder.Services.AddAutoMapper(cfg =>
 {
     var licenseKey = builder.Configuration["AutoMapper:LicenseKey"];
@@ -51,10 +43,10 @@ builder.Services.AddAutoMapper(cfg =>
     }
 }, typeof(CatalogProfile).Assembly);
 
-// 5. Валідатори FluentValidation
+// Валідатори FluentValidation
 builder.Services.AddValidatorsFromAssemblyContaining<CreateServiceDtoValidator>();
 
-// 6. EF Core DbContext
+// EF Core DbContext
 var connectionString = builder.Configuration.GetConnectionString("CatalogDb")
     ?? "Server=(localdb)\\mssqllocaldb;Database=DetailingCatalog;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
 
@@ -72,27 +64,24 @@ builder.Services.AddDbContext<CatalogDbContext>(options =>
     }
 });
 
-// 7. Реєстрація DAL (Unit of Work та репозиторіїв)
+// Реєстрація DAL (Unit of Work та репозиторіїв)
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IServiceCategoryRepository, ServiceCategoryRepository>();
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IPackageRepository, PackageRepository>();
 
-// 8. Реєстрація BLL сервісів
+// Реєстрація BLL сервісів
 builder.Services.AddScoped<IServiceCategoryService, ServiceCategoryService>();
 builder.Services.AddScoped<IServiceService, ServiceService>();
 builder.Services.AddScoped<IPackageService, PackageService>();
 
 var app = builder.Build();
 
-// 9. Middleware кореляційного ID (додає X-Correlation-Id у заголовок та Serilog LogContext)
+// Middleware кореляційного ID одразу після Build
 app.UseMiddleware<CorrelationIdMiddleware>();
 
-// 10. Глобальна обробка помилок
+// Глобальна обробка помилок
 app.UseExceptionHandler();
-
-// 11. Структурне логування HTTP-запитів Serilog
-app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {
@@ -105,8 +94,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 app.MapControllers();
+app.MapDefaultEndpoints();
 
-// 12. Автоматична міграція та сідінг БД під час запуску (для dev/staging середовищ)
+// Автоматична міграція та сідінг БД під час запуску (для dev/staging середовищ)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
@@ -128,13 +118,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-try
-{
-    app.Run();
-}
-finally
-{
-    Log.CloseAndFlush();
-}
+app.Run();
 
 public partial class Program { }

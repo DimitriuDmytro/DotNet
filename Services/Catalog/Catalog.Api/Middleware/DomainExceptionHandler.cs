@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Catalog.Domain.Exceptions;
+using Platform.ServiceDefaults;
 
 /// <summary>
 /// Глобальний обробник винятків IExceptionHandler (Критерій 12).

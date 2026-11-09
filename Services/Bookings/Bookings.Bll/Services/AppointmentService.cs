@@ -1,5 +1,6 @@
 namespace Bookings.Bll.Services;
 
+using System.Diagnostics;
 using AutoMapper;
 using Bookings.Bll.DTOs;
 using Bookings.Bll.Interfaces;
@@ -7,6 +8,8 @@ using Bookings.Dal.Interfaces;
 using Bookings.Domain.Constants;
 using Bookings.Domain.Exceptions;
 using Bookings.Domain.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
 /// Сервіс бізнес-логіки для управління записами на детейлінг (Appointment Aggregate).
@@ -14,13 +17,16 @@ using Bookings.Domain.Models;
 /// </summary>
 public class AppointmentService : IAppointmentService
 {
+    private static readonly ActivitySource Source = new("Bookings.Bll");
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
+    private readonly ILogger<AppointmentService> _logger;
 
-    public AppointmentService(IUnitOfWork unitOfWork, IMapper mapper)
+    public AppointmentService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<AppointmentService>? logger = null)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+        _logger = logger ?? NullLogger<AppointmentService>.Instance;
     }
 
     public async Task<AppointmentDto> GetByIdAsync(long id, CancellationToken cancellationToken = default)
@@ -54,6 +60,11 @@ public class AppointmentService : IAppointmentService
 
     public async Task<AppointmentDto> CreateAsync(CreateAppointmentDto dto, CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("CreateAppointment");
+        activity?.SetTag("client.id", dto.ClientId);
+
+        _logger.LogInformation("Початок створення запису для клієнта #{ClientId}", dto.ClientId);
+
         ValidateCreateDto(dto);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
@@ -121,6 +132,15 @@ public class AppointmentService : IAppointmentService
 
             await _unitOfWork.CommitAsync(cancellationToken);
 
+            activity?.SetTag("appointment.id", createResult.AppointmentId);
+            activity?.SetTag("appointment.total_amount", totalAmount);
+
+            _logger.LogInformation(
+                "Успішно створено запис #{AppointmentId} для клієнта #{ClientId} на суму {TotalAmount} грн",
+                createResult.AppointmentId,
+                dto.ClientId,
+                totalAmount);
+
             // Повертаємо повний агрегат створеного запису
             return await GetByIdAsync(createResult.AppointmentId, cancellationToken);
         }
@@ -133,6 +153,10 @@ public class AppointmentService : IAppointmentService
 
     public async Task ChangeStatusAsync(long id, ChangeStatusDto dto, CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ChangeAppointmentStatus");
+        activity?.SetTag("appointment.id", id);
+        activity?.SetTag("appointment.new_status", dto.NewStatus);
+
         if (string.IsNullOrWhiteSpace(dto.NewStatus) || !AppointmentStatuses.All.Contains(dto.NewStatus))
         {
             throw new ValidationException(nameof(dto.NewStatus), $"Некоректний цільовий статус: '{dto.NewStatus}'.");
@@ -157,6 +181,12 @@ public class AppointmentService : IAppointmentService
                 id, dto.NewStatus, dto.ChangedBy ?? "system", cancellationToken);
 
             await _unitOfWork.CommitAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Статус запису #{AppointmentId} успішно змінено з [{OldStatus}] на [{NewStatus}]",
+                id,
+                appointment.Status,
+                dto.NewStatus);
         }
         catch
         {

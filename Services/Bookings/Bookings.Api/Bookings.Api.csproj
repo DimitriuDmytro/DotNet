@@ -4,6 +4,7 @@
     <ProjectReference Include="..\Bookings.Domain\Bookings.Domain.csproj" />
     <ProjectReference Include="..\Bookings.Bll\Bookings.Bll.csproj" />
     <ProjectReference Include="..\Bookings.Dal\Bookings.Dal.csproj" />
+    <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
   </ItemGroup>
 
   <ItemGroup>

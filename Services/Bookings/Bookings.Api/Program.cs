@@ -1,23 +1,17 @@
-using Serilog;
 using Bookings.Api.Middleware;
 using Bookings.Bll.Interfaces;
 using Bookings.Bll.Mapping;
 using Bookings.Bll.Services;
 using Bookings.Dal.Interfaces;
 using Bookings.Dal.Repositories;
+using Platform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Налаштування структурного логування Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .CreateLogger();
+// Aspire Service Defaults (Serilog, OpenTelemetry, HealthChecks, ServiceDiscovery, Resilience)
+builder.AddServiceDefaults();
 
-builder.Host.UseSerilog();
-
-// 2. Реєстрація контролерів та документації Swagger/OpenAPI
+// Реєстрація контролерів та документації Swagger/OpenAPI
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -30,17 +24,17 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// 3. Глобальна обробка помилок через IExceptionHandler -> RFC 7807 ProblemDetails
+// Глобальна обробка помилок через IExceptionHandler -> RFC 7807 ProblemDetails
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 
-// 4. Реєстрація AutoMapper (профілі з рівня BLL + LicenseKey з конфігурації)
+// Реєстрація AutoMapper (профілі з рівня BLL + LicenseKey з конфігурації)
 builder.Services.AddAutoMapper(cfg =>
 {
     cfg.LicenseKey = builder.Configuration["AutoMapper:LicenseKey"];
 }, typeof(BookingProfile).Assembly);
 
-// 5. Реєстрація DAL (Unit of Work зі спільним з'єднанням на Scoped-запит)
+// Реєстрація DAL (Unit of Work зі спільним з'єднанням на Scoped-запит)
 builder.Services.AddScoped<IUnitOfWork>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
@@ -50,13 +44,16 @@ builder.Services.AddScoped<IUnitOfWork>(sp =>
     return new UnitOfWork(connectionString);
 });
 
-// 6. Реєстрація сервісів бізнес-логіки (BLL)
+// Реєстрація сервісів бізнес-логіки (BLL)
 builder.Services.AddScoped<IClientService, ClientService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICatalogQueryService, CatalogQueryService>();
 
 var app = builder.Build();
+
+// CorrelationId middleware одразу після Build
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 // Пайплайн обробки HTTP-запитів
 app.UseExceptionHandler();
@@ -69,6 +66,7 @@ app.UseSwaggerUI(c =>
 
 app.UseAuthorization();
 app.MapControllers();
+app.MapDefaultEndpoints();
 
 app.Run();
 
