@@ -1,23 +1,30 @@
 namespace Catalog.Api.Controllers;
 
+using System.Diagnostics;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Catalog.Bll.DTOs;
 using Catalog.Bll.Interfaces;
 
 /// <summary>
 /// Асинхронний контролер для управління послугами детейлінг-студії (Критерії 8, 10, 11).
-/// Тонкий шар представлення, не використовує DbContext напряму.
+/// Тонкий шар представлення з підтримкою структурованого логування та трасування OpenTelemetry.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class ServicesController : ControllerBase
 {
+    private static readonly ActivitySource Source = new("Catalog.Api");
     private readonly IServiceService _serviceService;
+    private readonly ILogger<ServicesController> _logger;
 
-    public ServicesController(IServiceService serviceService)
+    public ServicesController(
+        IServiceService serviceService,
+        ILogger<ServicesController> logger)
     {
         _serviceService = serviceService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -50,6 +57,10 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServiceDetailDto>> GetById(long id, CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.GetById");
+        activity?.SetTag("service.id", id);
+
+        _logger.LogInformation("ServicesController: Запит послуги #{ServiceId}", id);
         var service = await _serviceService.GetByIdAsync(id, cancellationToken);
         return Ok(service);
     }
@@ -63,6 +74,9 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServiceDetailDto>> GetByIdExplicit(long id, CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.GetByIdExplicit");
+        activity?.SetTag("service.id", id);
+
         var service = await _serviceService.GetByIdExplicitAsync(id, cancellationToken);
         return Ok(service);
     }
@@ -93,6 +107,12 @@ public class ServicesController : ControllerBase
         [FromServices] IValidator<CreateServiceDto> validator,
         CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.Create");
+        activity?.SetTag("service.name", dto.Name);
+        activity?.SetTag("service.category_id", dto.CategoryId);
+
+        _logger.LogInformation("ServicesController: Створення послуги '{ServiceName}' у категорії #{CategoryId}", dto.Name, dto.CategoryId);
+
         // Критерій 11: явний виклик FluentValidation валідатора
         var validationResult = await validator.ValidateAsync(dto, cancellationToken);
         if (!validationResult.IsValid)
@@ -101,6 +121,8 @@ public class ServicesController : ControllerBase
         }
 
         var created = await _serviceService.CreateAsync(dto, cancellationToken);
+        activity?.SetTag("service.id", created.Id);
+
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -118,6 +140,11 @@ public class ServicesController : ControllerBase
         [FromServices] IValidator<UpdateServiceDto> validator,
         CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.Update");
+        activity?.SetTag("service.id", id);
+
+        _logger.LogInformation("ServicesController: Оновлення послуги #{ServiceId}", id);
+
         var validationResult = await validator.ValidateAsync(dto, cancellationToken);
         if (!validationResult.IsValid)
         {
@@ -142,6 +169,12 @@ public class ServicesController : ControllerBase
         [FromServices] IValidator<UpdatePriceDto> validator,
         CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.UpdatePrice");
+        activity?.SetTag("service.id", id);
+        activity?.SetTag("service.price", dto.NewPrice);
+
+        _logger.LogInformation("ServicesController: Зміна ціни послуги #{ServiceId} на {NewPrice}", id, dto.NewPrice);
+
         var validationResult = await validator.ValidateAsync(dto, cancellationToken);
         if (!validationResult.IsValid)
         {
@@ -160,6 +193,10 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.Delete");
+        activity?.SetTag("service.id", id);
+
+        _logger.LogInformation("ServicesController: Видалення послуги #{ServiceId}", id);
         await _serviceService.DeleteAsync(id, cancellationToken);
         return NoContent();
     }

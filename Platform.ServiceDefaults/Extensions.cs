@@ -85,8 +85,11 @@ public static class Extensions
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddSource("Bookings.Bll")
+                    .AddSource("Bookings.Api")
                     .AddSource("Catalog.Bll")
+                    .AddSource("Catalog.Api")
                     .AddSource("Reviews.Application")
+                    .AddSource("Reviews.WebApi")
                     .AddSource("Platform.Aggregator")
                     .AddSource("Platform.ApiGateway")
                     .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
