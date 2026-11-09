@@ -22,7 +22,7 @@ public class CorrelationIdHandler : DelegatingHandler
             var correlationId = httpContext.Request.Headers[CorrelationIdMiddleware.HeaderName].FirstOrDefault();
             if (!string.IsNullOrWhiteSpace(correlationId) && !request.Headers.Contains(CorrelationIdMiddleware.HeaderName))
             {
-                request.Headers.Add(CorrelationIdMiddleware.HeaderName, correlationId);
+                request.Headers.TryAddWithoutValidation(CorrelationIdMiddleware.HeaderName, correlationId);
             }
         }
 

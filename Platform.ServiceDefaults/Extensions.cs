@@ -15,15 +15,24 @@ using Serilog.Formatting.Compact;
 
 namespace Microsoft.Extensions.Hosting;
 
-// Adds common Aspire services: Serilog, OpenTelemetry, service discovery, resilience, health checks, and CorrelationId.
+/// <summary>
+/// Розширення для конфігурації загальних сервісів платформи Aspire:
+/// Serilog, OpenTelemetry, Service Discovery, Health Checks, Resilience та CorrelationId.
+/// </summary>
 public static class Extensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
 
+    /// <summary>
+    /// Реєструє спільні інфраструктурні сервіси для мікросервісів та шлюзів платформи.
+    /// </summary>
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
-        // 4.1 Serilog
+        // Очищаємо стандартні MEL-провайдери, щоб уникнути подвійного виводу в консоль (SD-13)
+        builder.Logging.ClearProviders();
+
+        // 4.1 Налаштування централізованого Serilog логера
         builder.Services.AddSerilog((services, cfg) => cfg
             .MinimumLevel.Is(builder.Environment.IsDevelopment() ? LogEventLevel.Debug : LogEventLevel.Information)
             .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
@@ -47,19 +56,22 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Turn on resilience by default
+            // Стандартні політики відмовостійкості (Timeout, Retry, CircuitBreaker)
             http.AddStandardResilienceHandler();
 
-            // Turn on service discovery by default
+            // Автоматичне виявлення сервісів через Aspire Service Discovery
             http.AddServiceDiscovery();
 
-            // Прокидання X-Correlation-Id між сервісами
+            // Наскрізне прокидання заголовка X-Correlation-Id між сервісами
             http.AddHttpMessageHandler<CorrelationIdHandler>();
         });
 
         return builder;
     }
 
+    /// <summary>
+    /// Конфігурація OpenTelemetry Metrics та Distributed Tracing.
+    /// </summary>
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Logging.AddOpenTelemetry(logging =>
@@ -109,7 +121,7 @@ public static class Extensions
                 else
                 {
                     var samplingRatio = builder.Configuration.GetValue<double?>("OpenTelemetry:SamplingRatio") ?? 1.0;
-                    tracing.SetSampler(new TraceIdRatioBasedSampler(samplingRatio));
+                    tracing.SetSampler(new ParentBasedSampler(new TraceIdRatioBasedSampler(samplingRatio)));
                 }
             });
 
@@ -130,6 +142,9 @@ public static class Extensions
         return builder;
     }
 
+    /// <summary>
+    /// Реєструє базовий Health Check перевірки життєдіяльності застосунку.
+    /// </summary>
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
@@ -138,11 +153,17 @@ public static class Extensions
         return builder;
     }
 
+    /// <summary>
+    /// Підключає middleware для перехоплення та прокидання CorrelationId.
+    /// </summary>
     public static IApplicationBuilder UseCorrelationId(this IApplicationBuilder app)
     {
         return app.UseMiddleware<CorrelationIdMiddleware>();
     }
 
+    /// <summary>
+    /// Мапить стандартні ендпоінти перевірки здоров'я /health та /alive.
+    /// </summary>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
         app.MapHealthChecks(HealthEndpointPath);
