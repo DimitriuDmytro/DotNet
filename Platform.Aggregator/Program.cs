@@ -1,13 +1,25 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Bookings.Grpc;
+using Catalog.Grpc;
 using Platform.Aggregator.Clients;
+using Platform.Aggregator.Grpc;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
+using Reviews.Grpc;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Aspire Service Defaults
 builder.AddServiceDefaults();
+
+// Redis L2 Distributed Cache для кешування агрегованих відповідей
+builder.AddRedisDistributedCache("redis");
+
+// HttpContextAccessor для отримання кореляційного ID в gRPC інтерцепторі
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<GrpcClientLoggingInterceptor>();
+builder.Services.AddSingleton<AggregatorCacheMetrics>();
 
 // ProblemDetails для стандартизованих помилок (AG-27)
 builder.Services.AddProblemDetails();
@@ -29,13 +41,30 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Реєстрація типізованих HTTP-клієнтів до мікросервісів за логічними іменами через Aspire Service Discovery (AG-01, AG-03)
+// Реєстрація gRPC-клієнтів до мікросервісів з перехоплювачем логування та кореляції
+builder.Services.AddGrpcClient<BookingsService.BookingsServiceClient>(c =>
+{
+    c.Address = new Uri("https://bookings-api");
+}).AddInterceptor<GrpcClientLoggingInterceptor>();
+
+builder.Services.AddGrpcClient<CatalogService.CatalogServiceClient>(c =>
+{
+    c.Address = new Uri("https://catalog-api");
+}).AddInterceptor<GrpcClientLoggingInterceptor>();
+
+builder.Services.AddGrpcClient<ReviewsService.ReviewsServiceClient>(c =>
+{
+    c.Address = new Uri("https://reviews-api");
+}).AddInterceptor<GrpcClientLoggingInterceptor>();
+
+// Реєстрація типізованих HTTP-клієнтів (для порівняльного бенчмарку /full-http)
 builder.Services.AddHttpClient<OrdersClient>(c => c.BaseAddress = new("https+http://bookings-api"));
 builder.Services.AddHttpClient<CatalogClient>(c => c.BaseAddress = new("https+http://catalog-api"));
 builder.Services.AddHttpClient<ReviewsClient>(c => c.BaseAddress = new("https+http://reviews-api"));
 
-// Сервіс бізнес-агрегації
+// Сервіси бізнес-агрегації
 builder.Services.AddScoped<OrderAggregationService>();
+builder.Services.AddScoped<IOrderAggregationService, GrpcOrderAggregationService>();
 
 var app = builder.Build();
 
