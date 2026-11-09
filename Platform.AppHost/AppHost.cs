@@ -2,12 +2,18 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 // Пароль SQL Server передається тільки як параметр-секрет
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
-var sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
+var sql = builder.AddSqlServer("sql", sqlPassword)
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent);
+
 var bookingsDb = sql.AddDatabase("BookingsDb");
 var catalogDb = sql.AddDatabase("CatalogDb");
 
 // База даних MongoDB для відгуків та звітів
-var mongo = builder.AddMongoDB("mongo").WithDataVolume();
+var mongo = builder.AddMongoDB("mongo")
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent);
+
 var reviewsDb = mongo.AddDatabase("ReviewsDb");
 
 // Мікросервіси платформи
@@ -28,6 +34,7 @@ var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
 // API Gateway на фіксованому порті 5000, залежить від сервісів та агрегатора
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")
+    .WithExternalHttpEndpoints()
     .WithReference(bookings).WithReference(catalog).WithReference(reviews)
     .WithReference(aggregator)
     .WaitFor(aggregator);
