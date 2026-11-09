@@ -5,3 +5,4 @@ global using global::Reviews.Domain.Exceptions;
 global using global::Reviews.Application.Common.Interfaces;
 global using global::Reviews.Application.Common.Models;
 global using global::Reviews.Application.Reviews.DTOs;
+global using global::Reviews.Application.Caching;

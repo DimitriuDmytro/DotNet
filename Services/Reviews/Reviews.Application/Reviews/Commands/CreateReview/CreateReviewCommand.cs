@@ -20,4 +20,13 @@ public record CreateReviewCommand(
     IReadOnlyList<string>? PhotosAfter = null,
     string? VideoUrl = null,
     IReadOnlyList<string>? Pros = null,
-    IReadOnlyList<string>? Cons = null) : ICommand<string>;
+    IReadOnlyList<string>? Cons = null) : ICommand<string>, ICacheInvalidatingCommand
+{
+    public IEnumerable<string> InvalidationKeys => new[]
+    {
+        ReviewsCacheKeys.ServiceReviews(ServiceId, 1, 20),
+        ReviewsCacheKeys.ReviewsList(1, 20)
+    };
+
+    public string InvalidationReason => $"Review created for service {ServiceId}";
+}

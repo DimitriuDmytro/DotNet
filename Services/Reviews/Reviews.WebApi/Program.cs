@@ -1,9 +1,12 @@
 using Microsoft.Extensions.Options;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
 using Reviews.Application;
+using Reviews.Application.Caching;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Persistence;
 using Reviews.Infrastructure.Seeding;
+using Reviews.WebApi.Grpc;
 using Reviews.WebApi.Middleware;
 using Serilog;
 
@@ -12,9 +15,35 @@ var builder = WebApplication.CreateBuilder(args);
 // Aspire Service Defaults (Serilog, OpenTelemetry, HealthChecks, ServiceDiscovery, Resilience)
 builder.AddServiceDefaults();
 
-// Реєстрація шарів Clean Architecture (Критерій 1, 7, 10)
+// Redis L2 Distributed Cache
+builder.AddRedisDistributedCache("redis");
+
+// L1 Memory Cache з обмеженням розміру (SizeLimit) та відстеженням статистики
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 10_000;
+    options.CompactionPercentage = 0.25;
+    options.TrackStatistics = true;
+});
+
+// Реєстрація шарів Clean Architecture (Критерій 1, 7, 10 + MediatR кешування)
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Health Checks для MongoDB та кешу
+builder.Services.AddHealthChecks()
+    .AddMongoDb(
+        sp => sp.GetRequiredService<MongoDbContext>().Database,
+        name: "mongodb",
+        timeout: TimeSpan.FromSeconds(3))
+    .AddCheck<ReviewsCacheHealthCheck>("cache", tags: ["ready"]);
+
+// gRPC сервер із сервером-перехоплювачем логування та кореляції
+builder.Services.AddGrpc(options =>
+{
+    options.Interceptors.Add<GrpcLoggingInterceptor>();
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
 
 // ProblemDetails та централізований обробник помилок (Критерій 13)
 builder.Services.AddProblemDetails();
@@ -38,13 +67,6 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// Health Checks для MongoDB
-builder.Services.AddHealthChecks()
-    .AddMongoDb(
-        sp => sp.GetRequiredService<MongoDbContext>().Database,
-        name: "mongodb",
-        timeout: TimeSpan.FromSeconds(3));
-
 var app = builder.Build();
 
 // CorrelationId middleware одразу після Build
@@ -59,6 +81,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<ReviewsGrpcService>();
 app.MapDefaultEndpoints();
 
 // Ідемпотентне наповнення початковими даними при запуску (Критерій 14)
