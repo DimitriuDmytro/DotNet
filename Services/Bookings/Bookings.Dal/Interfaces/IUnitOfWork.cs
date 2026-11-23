@@ -11,6 +11,7 @@ public interface IUnitOfWork : IAsyncDisposable
     IPaymentRepository Payments { get; }
     ICatalogServiceRepository Services { get; }
     ICatalogServiceRepository CatalogServices { get; }
+    IProcessedEventRepository ProcessedEvents { get; }
 
     Task BeginTransactionAsync(CancellationToken cancellationToken = default);
     Task CommitAsync(CancellationToken cancellationToken = default);

@@ -218,6 +218,17 @@ public class Review : BaseEntity
         Text = trimmedText;
     }
 
+    public void UpdateServiceName(string newName)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            throw new DomainException("Назва послуги не може бути порожньою.");
+        }
+
+        ServiceName = newName.Trim();
+        Touch();
+    }
+
     public static Review CreateForSeeding(
         ObjectId id,
         long serviceId,

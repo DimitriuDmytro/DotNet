@@ -10,6 +10,9 @@ using Catalog.Domain.Entities;
 using Catalog.Domain.Exceptions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Platform.EventBus.Events;
+using Platform.EventBus.Publisher;
+using Platform.EventBus.Topology;
 
 public class ServiceService : IServiceService
 {
@@ -17,12 +20,18 @@ public class ServiceService : IServiceService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
     private readonly ILogger<ServiceService> _logger;
+    private readonly IEventPublisher? _eventPublisher;
 
-    public ServiceService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ServiceService>? logger = null)
+    public ServiceService(
+        IUnitOfWork unitOfWork,
+        IMapper mapper,
+        ILogger<ServiceService>? logger = null,
+        IEventPublisher? eventPublisher = null)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
         _logger = logger ?? NullLogger<ServiceService>.Instance;
+        _eventPublisher = eventPublisher;
     }
 
     public async Task<PagedResult<ServiceDto>> GetPagedAsync(ServiceQuery query, CancellationToken cancellationToken = default)
@@ -127,6 +136,22 @@ public class ServiceService : IServiceService
         activity?.SetTag("service.id", service.Id);
         _logger.LogInformation("Послугу #{ServiceId} '{ServiceName}' успішно створено", service.Id, service.Name);
 
+        if (_eventPublisher != null)
+        {
+            try
+            {
+                await _eventPublisher.PublishAsync(
+                    EventBusTopology.CatalogEventsExchange,
+                    EventBusTopology.ProductCreatedRoutingKey,
+                    new ProductCreatedEvent(service.Id, service.Name, service.Price, service.DurationMin, DateTime.UtcNow, Activity.Current?.Id),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Помилка публікації ProductCreatedEvent для послуги #{ServiceId}", service.Id);
+            }
+        }
+
         return await GetByIdAsync(service.Id, cancellationToken);
     }
 
@@ -149,9 +174,26 @@ public class ServiceService : IServiceService
             throw new EntityNotFoundException(nameof(ServiceCategory), dto.CategoryId);
         }
 
+        var oldName = service.Name;
         service.UpdateDetails(dto.Name, dto.CategoryId, dto.DurationMin, dto.UpdatedBy);
         _unitOfWork.Services.Update(service);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        if (_eventPublisher != null && !string.Equals(oldName, dto.Name, StringComparison.Ordinal))
+        {
+            try
+            {
+                await _eventPublisher.PublishAsync(
+                    EventBusTopology.CatalogEventsExchange,
+                    EventBusTopology.ProductRenamedRoutingKey,
+                    new ProductRenamedEvent(service.Id, oldName, dto.Name, DateTime.UtcNow, Activity.Current?.Id),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Помилка публікації ProductRenamedEvent для послуги #{ServiceId}", service.Id);
+            }
+        }
 
         return await GetByIdAsync(id, cancellationToken);
     }
@@ -164,9 +206,26 @@ public class ServiceService : IServiceService
             throw new EntityNotFoundException(nameof(Service), id);
         }
 
+        var oldPrice = service.Price;
         service.UpdatePrice(dto.NewPrice, dto.UpdatedBy);
         _unitOfWork.Services.Update(service);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        if (_eventPublisher != null)
+        {
+            try
+            {
+                await _eventPublisher.PublishAsync(
+                    EventBusTopology.CatalogEventsExchange,
+                    EventBusTopology.ProductPriceChangedRoutingKey,
+                    new ProductPriceChangedEvent(service.Id, service.Name, oldPrice, dto.NewPrice, DateTime.UtcNow, Activity.Current?.Id),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Помилка публікації ProductPriceChangedEvent для послуги #{ServiceId}", service.Id);
+            }
+        }
 
         return await GetByIdAsync(id, cancellationToken);
     }
@@ -179,9 +238,26 @@ public class ServiceService : IServiceService
             throw new EntityNotFoundException(nameof(Service), id);
         }
 
+        var serviceName = service.Name;
         service.SoftDelete("system");
         _unitOfWork.Services.Update(service);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        if (_eventPublisher != null)
+        {
+            try
+            {
+                await _eventPublisher.PublishAsync(
+                    EventBusTopology.CatalogEventsExchange,
+                    EventBusTopology.ProductDeletedRoutingKey,
+                    new ProductDeletedEvent(service.Id, serviceName, DateTime.UtcNow, Activity.Current?.Id),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Помилка публікації ProductDeletedEvent для послуги #{ServiceId}", service.Id);
+            }
+        }
     }
 
     public async Task<ServiceImageDto> AddImageAsync(long serviceId, AddServiceImageDto dto, CancellationToken cancellationToken = default)

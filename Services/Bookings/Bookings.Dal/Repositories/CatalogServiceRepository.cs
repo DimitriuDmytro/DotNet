@@ -120,4 +120,79 @@ public class CatalogServiceRepository : BaseDapperRepository<CatalogService>, IC
             await Connection.ExecuteAsync(command);
         });
     }
+
+    public async Task<bool> UpdatePriceAsync(long serviceId, decimal newPrice, DateTime occurredAt, CancellationToken cancellationToken = default)
+    {
+        return await ExecuteAsync(async () =>
+        {
+            const string sql = @"
+                UPDATE dbo.Services
+                SET Price = @Price,
+                    SyncedAt = @OccurredAt
+                WHERE Id = @Id AND (SyncedAt IS NULL OR SyncedAt <= @OccurredAt);";
+
+            var command = new CommandDefinition(sql, new
+            {
+                Id = serviceId,
+                Price = newPrice,
+                OccurredAt = occurredAt
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
+
+            var rows = await Connection.ExecuteAsync(command);
+            return rows > 0;
+        });
+    }
+
+    public async Task<bool> UpdateNameAsync(long serviceId, string newName, DateTime occurredAt, CancellationToken cancellationToken = default)
+    {
+        return await ExecuteAsync(async () =>
+        {
+            const string sql = @"
+                UPDATE dbo.Services
+                SET Name = @Name,
+                    SyncedAt = @OccurredAt
+                WHERE Id = @Id AND (SyncedAt IS NULL OR SyncedAt <= @OccurredAt);";
+
+            var command = new CommandDefinition(sql, new
+            {
+                Id = serviceId,
+                Name = newName,
+                OccurredAt = occurredAt
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
+
+            var rows = await Connection.ExecuteAsync(command);
+            return rows > 0;
+        });
+    }
+
+    public async Task<bool> UpsertReplicaAsync(long serviceId, string name, decimal price, int durationMin, DateTime occurredAt, CancellationToken cancellationToken = default)
+    {
+        return await ExecuteAsync(async () =>
+        {
+            const string sql = @"
+                MERGE INTO dbo.Services AS target
+                USING (SELECT @Id AS Id, @Name AS Name, @Price AS Price, @DurationMin AS DurationMin, @OccurredAt AS OccurredAt) AS source
+                ON (target.Id = source.Id)
+                WHEN MATCHED AND (target.SyncedAt IS NULL OR target.SyncedAt <= source.OccurredAt) THEN
+                    UPDATE SET target.Name = source.Name,
+                               target.Price = CASE WHEN source.Price > 0 THEN source.Price ELSE target.Price END,
+                               target.DurationMin = CASE WHEN source.DurationMin > 0 THEN source.DurationMin ELSE target.DurationMin END,
+                               target.SyncedAt = source.OccurredAt
+                WHEN NOT MATCHED THEN
+                    INSERT (Id, Name, Price, DurationMin, SyncedAt)
+                    VALUES (source.Id, source.Name, source.Price, source.DurationMin, source.OccurredAt);";
+
+            var command = new CommandDefinition(sql, new
+            {
+                Id = serviceId,
+                Name = name,
+                Price = price,
+                DurationMin = durationMin,
+                OccurredAt = occurredAt
+            }, Transaction, commandTimeout: DefaultCommandTimeoutSeconds, cancellationToken: cancellationToken);
+
+            var rows = await Connection.ExecuteAsync(command);
+            return rows > 0;
+        });
+    }
 }

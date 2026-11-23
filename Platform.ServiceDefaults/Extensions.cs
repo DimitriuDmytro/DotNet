@@ -126,6 +126,7 @@ public static class Extensions
                     .AddSource("Platform.Aggregator")
                     .AddSource("Platform.Aggregator.Cache")
                     .AddSource("Platform.ApiGateway")
+                    .AddSource("Platform.Messaging")
                     .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
                     .AddAspNetCoreInstrumentation(opt =>
                     {

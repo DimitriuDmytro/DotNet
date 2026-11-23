@@ -18,6 +18,7 @@ public class UnitOfWork : IUnitOfWork
     private IAppointmentRepository? _appointments;
     private IPaymentRepository? _payments;
     private ICatalogServiceRepository? _catalogServices;
+    private IProcessedEventRepository? _processedEvents;
 
     public UnitOfWork(string connectionString)
     {
@@ -45,6 +46,9 @@ public class UnitOfWork : IUnitOfWork
         _catalogServices ??= new CatalogServiceRepository(_connection, () => _transaction);
 
     public ICatalogServiceRepository CatalogServices => Services;
+
+    public IProcessedEventRepository ProcessedEvents =>
+        _processedEvents ??= new ProcessedEventRepository(_connection, () => _transaction);
 
     public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
     {

@@ -14,4 +14,6 @@ public interface IReviewRepository
     Task AddAsync(Review review, CancellationToken cancellationToken = default);
     Task UpdateAsync(Review review, int expectedVersion, CancellationToken cancellationToken = default);
     Task DeleteAsync(ObjectId id, CancellationToken cancellationToken = default);
+    Task<long> UpdateServiceNameAsync(long serviceId, string newName, DateTime occurredAt, CancellationToken cancellationToken = default);
+    Task<long> UpdateWorkReportsServiceNameAsync(long serviceId, string newName, DateTime occurredAt, CancellationToken cancellationToken = default);
 }

@@ -21,24 +21,32 @@ var redis = builder.AddRedis("redis")
     .WithDataVolume()
     .WithLifetime(ContainerLifetime.Persistent);
 
+// Брокер повідомлень RabbitMQ з Management UI та персистентним volume (Лаб. 08, Критерій 1)
+var rabbit = builder.AddRabbitMQ("messaging")
+    .WithDataVolume()
+    .WithManagementPlugin();
+
 // Критерій 12: Налаштування WithHttpHealthCheck("/health/ready") та ланцюжків WaitFor
 
 // 1. Мікросервіс бронювань
 var bookings = builder.AddProject<Projects.Bookings_Api>("bookings-api")
     .WithReference(bookingsDb).WaitFor(bookingsDb)
     .WithReference(redis).WaitFor(redis)
+    .WithReference(rabbit).WaitFor(rabbit)
     .WithHttpHealthCheck("/health/ready");
 
 // 2. Мікросервіс каталогу послуг
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
     .WithReference(catalogDb).WaitFor(catalogDb)
     .WithReference(redis).WaitFor(redis)
+    .WithReference(rabbit).WaitFor(rabbit)
     .WithHttpHealthCheck("/health/ready");
 
 // 3. Мікросервіс відгуків
 var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(redis).WaitFor(redis)
+    .WithReference(rabbit).WaitFor(rabbit)
     .WithHttpHealthCheck("/health/ready");
 
 // 4. Композитний сервіс агрегації (Aggregator)

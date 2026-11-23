@@ -1847,3 +1847,187 @@ dotnet run --project Platform.AppHost
   ```
 - **Результат:** Запит до каталогу успішно повертає дані з бази даних SQL Server. Ендпоінт `/health/ready` повертає загальний статус `"status": "Degraded"`, де `redis-cache` має статус `Degraded`, а `catalog-db` залишається `Healthy`. Жоден користувацький запит не падає помилкою!
 
+
+
+---
+
+## 16. Лабораторна робота № 08: Асинхронна подієва мікросервісна архітектура з брокером повідомлень (RabbitMQ)
+
+У межах Практичного заняття № 08 платформу розширено асинхронним обміном повідомленнями на базі RabbitMQ 7.x та .NET Aspire (`Aspire.Hosting.RabbitMQ`, `Aspire.RabbitMQ.Client.v7`). Реалізовано подієву реплікацію даних, надійну доставку з гарантією At-Least-Once, ідемпотентну обробку, черги недоставлених повідомлень (Dead Letter Queues), політику повторів (Retries) та наскрізне W3C-трасування.
+
+---
+
+### 16.1. Архітектурна діаграма потоку повідомлень
+
+```mermaid
+flowchart TD
+    subgraph Publisher["Catalog Microservice (Publisher)"]
+        CS[ServiceService / BLL]
+        CDB[(CatalogDb / SQL Server)]
+        EP[IEventPublisher / RabbitMqEventPublisher]
+    end
+
+    subgraph RabbitMQ["RabbitMQ Message Broker"]
+        TX[Topic Exchange: catalog-events]
+        DLX[Fanout DLX: catalog-events.dlx]
+        
+        Q1[Queue: orders.catalog-sync]
+        Q2[Queue: reviews.catalog-sync]
+        
+        DLQ1[DLQ: orders.catalog-sync.dlq]
+        DLQ2[DLQ: reviews.catalog-sync.dlq]
+    end
+
+    subgraph Consumer1["Bookings / Orders Microservice (Consumer)"]
+        BC[CatalogEventsConsumer]
+        PT[(dbo.ProcessedEvents)]
+        BDB[(dbo.Services Replica)]
+        AIT[(dbo.AppointmentItems - UnitPrice Unchanged)]
+        BRC[(Redis L2 Cache)]
+    end
+
+    subgraph Consumer2["Reviews Microservice (Consumer)"]
+        RC[CatalogEventsConsumer]
+        RPT[(MongoDB: processedEvents)]
+        MRD[(MongoDB: reviews & workReports)]
+        RRC[(Redis L2 Cache)]
+    end
+
+    CS -->|1. SaveChangesAsync| CDB
+    CS -->|2. PublishAsync| EP
+    EP -->|3. product.*| TX
+
+    TX -->|product.*| Q1
+    TX -->|product.*| Q2
+
+    Q1 -->|Max 3 Retries Exceeded / Permanent Failure| DLX
+    Q2 -->|Max 3 Retries Exceeded / Permanent Failure| DLX
+    DLX --> DLQ1
+    DLX --> DLQ2
+
+    Q1 -->|Consume / manual ack| BC
+    BC -->|Idempotency Check| PT
+    BC -->|Replicate Data| BDB
+    BC -.->|Preserve Historical Price| AIT
+    BC -->|Invalidate Cache| BRC
+
+    Q2 -->|Consume / manual ack| RC
+    RC -->|Idempotency Check| RPT
+    RC -->|Update ServiceName via MediatR| MRD
+    RC -->|Invalidate Cache| RRC
+```
+
+---
+
+### 16.2. Декларативна топологія RabbitMQ (Exchanges, Queues, DLX, Bindings)
+
+Топологія оголошується декларативно та ідемпотентно при старті через клас `Platform.EventBus.Topology.EventBusTopology`:
+
+| Елемент | Тип / Аргументи | Призначення |
+| :--- | :--- | :--- |
+| **`catalog-events`** | Topic Exchange (Durable) | Головний обмінник для подій життєвого циклу каталогу послуг/товарів. |
+| **`catalog-events.dlx`** | Fanout Exchange (Durable) | Dead Letter Exchange для перенаправлення відкинутих повідомлень (NACK без requeue). |
+| **`orders-events`** | Topic Exchange (Durable) | Обмінник бізнес-подій замовлень/бронювань. |
+| **`orders.catalog-sync`** (`bookings.catalog-sync`) | Queue (Durable, `x-dead-letter-exchange: catalog-events.dlx`) | Черга споживача Bookings для реплікації змін каталогу. Bound to `catalog-events` with `product.*`. |
+| **`orders.catalog-sync.dlq`** (`bookings.catalog-sync.dlq`) | Queue (Durable) | Черга Dead Letter для замовлень/бронювань. Bound to `catalog-events.dlx`. |
+| **`reviews.catalog-sync`** | Queue (Durable, `x-dead-letter-exchange: catalog-events.dlx`) | Черга споживача Reviews для оновлення денормалізованих назв послуг. Bound to `catalog-events` with `product.*`. |
+| **`reviews.catalog-sync.dlq`** | Queue (Durable) | Черга Dead Letter для відгуків. Bound to `catalog-events.dlx`. |
+
+---
+
+### 16.3. Контракти інтеграційних подій (Platform.EventBus)
+
+Усі події наслідують `IntegrationEvent` та є незмінними (`record`):
+
+| Подія | Routing Key | Ключові властивості | Опис |
+| :--- | :--- | :--- | :--- |
+| **`ProductCreatedEvent`** | `product.created` | `EventId`, `OccurredAt`, `CorrelationId`, `ProductId`, `ProductName`, `Price`, `DurationMin` | Створення нової послуги в каталозі. |
+| **`ProductPriceChangedEvent`** | `product.price_changed` | `EventId`, `OccurredAt`, `CorrelationId`, `ProductId`, `ProductName`, `OldPrice`, `NewPrice` | Зміна вартості послуги. |
+| **`ProductRenamedEvent`** | `product.renamed` | `EventId`, `OccurredAt`, `CorrelationId`, `ProductId`, `OldName`, `NewName` | Зміна назви послуги. |
+| **`ProductDeletedEvent`** | `product.deleted` | `EventId`, `OccurredAt`, `CorrelationId`, `ProductId`, `ProductName` | Видалення / деактивація послуги. |
+
+---
+
+### 16.4. Матриця реплікації даних між мікросервісами
+
+| Поле / Сутність | Source of Truth | Сервіс-споживач | Цільова таблиця / Колекція | Подія брокера | Політика узгодженості та Out-of-Order захист |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`Service.Price`** | Catalog (`dbo.Services`) | Bookings | `dbo.Services.Price` | `ProductPriceChangedEvent` | Оновлюється тільки `dbo.Services`. **`dbo.AppointmentItems.UnitPrice` НЕ змінюється**, фіксуючи ціну на момент угоди. Захист: `SyncedAt <= @OccurredAt`. |
+| **`Service.Name`** | Catalog (`dbo.Services`) | Bookings | `dbo.Services.Name` | `ProductRenamedEvent` | Eventual Consistency. Оновлюється репліка за умови `SyncedAt <= @OccurredAt`. Інвалідується кеш `service:{id}`. |
+| **`Service.Name`** | Catalog (`dbo.Services`) | Reviews | MongoDB `reviews.serviceName`, `workReports.serviceName` | `ProductRenamedEvent` | Eventual Consistency через MediatR-команду `UpdateServiceNameInReviewsCommand`. Фільтр `updatedAt <= occurredAt`. Інвалідується кеш `reviews:service:{id}`. |
+| **`Service (New)`** | Catalog (`dbo.Services`) | Bookings | `dbo.Services` | `ProductCreatedEvent` | `MERGE` / `Upsert` репліки з `OccurredAt`. Інвалідується кеш списків. |
+
+---
+
+### 16.5. Забезпечення ідемпотентності (Idempotency Tables)
+
+Для гарантії ідемпотентної обробки при повторній доставці (At-Least-Once Delivery):
+1. **Bookings (SQL Server):**
+   - Таблиця `dbo.ProcessedEvents (EventId UNIQUEIDENTIFIER PRIMARY KEY, ProcessedAt DATETIME2 NOT NULL)`. DDL-скрипт розташовано у `db/p1/01_processed_events.sql`.
+   - Репозиторій `IProcessedEventRepository.TryAddAsync(eventId)` виконує вставку. При порушенні первинного ключа (SQL Error 2627 / 2601) повертає `false`. Споживач логує попередження про дублікат, викликає `BasicAckAsync` та пропускає виконання бізнес-логіки.
+2. **Reviews (MongoDB):**
+   - Колекція `processedEvents` із унікальним полем `_id = eventId`.
+   - При виникненні `MongoWriteException` із кодом `11000` (DuplicateKey) документ вважається вже обробленим: споживач підтверджує повідомлення (`BasicAckAsync`) і пропускає повторне виконання.
+
+---
+
+### 16.6. Політики обробки помилок, Retries та Dead Letter Exchange
+
+1. **Ручне підтвердження (Manual Ack):**
+   - Усі споживачі конфігуруються з `autoAck: false` та `BasicQosAsync(prefetchCount: 10)`.
+   - `BasicAckAsync` викликається виключно після успішного збереження змін у БД та інвалідації кешу.
+2. **Невідновлювані помилки (Unrecoverable Errors):**
+   - При виникненні `JsonException`, невалідному форматі або невідомому типі повідомлення споживач виконує `BasicNackAsync(multiple: false, requeue: false)`. RabbitMQ автоматично маршрутизує повідомлення через DLX `catalog-events.dlx` до відповідної DLQ (`*.catalog-sync.dlq`).
+3. **Відновлювані помилки (Transient Errors) та Retries:**
+   - Реалізовано через `DeadLetterHelper.RetryOrDeadLetterAsync`.
+   - Лічильник спроб зберігається у заголовку `x-retry-count`.
+   - Максимальна кількість спроб — **3**. При кожній спробі створюється копія повідомлення з інкрементованим `x-retry-count`, публікується в ту саму чергу/обмінник, а оригінальне повідомлення підтверджується (`ACK`).
+   - Якщо `x-retry-count >= 3`, повідомлення відхиляється через `NACK` без requeue і надходить у Dead Letter Queue.
+
+---
+
+### 16.7. Наскрізне трасування (OpenTelemetry & W3C Trace Context)
+
+- **W3C Trace Context:** При публікації `TracePropagation.Inject` записує контекст активності (`traceparent`) у заголовки повідомлення RabbitMQ (`basicProperties.Headers`).
+- **ActivitySource:** У `Platform.ServiceDefaults` підключено `.AddSource("Platform.Messaging")`.
+- **Consumer Activity:** При споживанні `TracePropagation.Extract` зчитує `traceparent` та запускає дочірній `Activity` з видом `ActivityKind.Consumer` та тегами `messaging.system = "rabbitmq"`, `messaging.destination.name`, `messaging.message.id`.
+- **CorrelationId:** Значення `x-correlation-id` вилучається з заголовків та зв'язується з бізнес-трасуванням.
+
+---
+
+### 16.8. Інструкція з ручного тестування та перевірки
+
+#### 1. Запуск платформи з брокером повідомлень:
+```bash
+dotnet run --project Platform.AppHost
+```
+- Aspire автоматично підніме контейнер RabbitMQ з Management UI.
+- Панель RabbitMQ Management доступна в браузері (порт відображається в Aspire Dashboard).
+- У вкладці **Exchanges** перевірте наявність `catalog-events`, `catalog-events.dlx`.
+- У вкладці **Queues** перевірте `orders.catalog-sync`, `reviews.catalog-sync` та відповідні `*.dlq`.
+
+#### 2. Перевірка реплікації зміни ціни:
+- Надішліть PUT-запит на зміну ціни послуги в Catalog:
+  ```bash
+  curl -X PUT "https://localhost:7020/api/services/1/price" -H "Content-Type: application/json" -d '{"newPrice": 4500}'
+  ```
+- **Результат:**
+  - `Catalog.Api` успішно фіксує зміну ціни в базі даних та публікує `ProductPriceChangedEvent` у `catalog-events`.
+  - `Bookings.Api` зчитує подію, оновлює `dbo.Services` (перевірте: `SELECT Price, SyncedAt FROM dbo.Services WHERE Id = 1`).
+  - Перевірте збереження історичної ціни в раніше створених записах: `SELECT UnitPrice FROM dbo.AppointmentItems WHERE ServiceId = 1` — **значення UnitPrice залишається незмінним**!
+
+#### 3. Перевірка реплікації зміни назви:
+- Надішліть PUT-запит на перейменування послуги в Catalog:
+  ```bash
+  curl -X PUT "https://localhost:7020/api/services/1" -H "Content-Type: application/json" -d '{"name": "Преміум полірування кузова", "categoryId": 1, "durationMin": 180}'
+  ```
+- **Результат:**
+  - `Reviews.WebApi` отримує `ProductRenamedEvent`, виконує `UpdateServiceNameInReviewsCommand`.
+  - Усі відгуки в MongoDB оновлюють `serviceName`:
+    `db.reviews.find({ serviceId: 1 }, { serviceName: 1 })` -> `"serviceName": "Преміум полірування кузова"`.
+  - Усі звіти про роботу оновлюють `serviceName`:
+    `db.workReports.find({ serviceId: 1 }, { serviceName: 1 })` -> `"serviceName": "Преміум полірування кузова"`.
+
+#### 4. Перевірка ідемпотентності:
+- Опублікуйте у чергу `orders.catalog-sync` те саме повідомлення двічі з однаковим `MessageId`.
+- **Результат:** Перший виклик оновлює репліку та записує `EventId` у `dbo.ProcessedEvents`. Другий виклик фіксує дублікат у `dbo.ProcessedEvents`, логує попередження `Duplicate event detected... Skipping duplicate and ACKing` і відразу повертає `BasicAckAsync` без повторного оновлення.

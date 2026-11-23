@@ -20,6 +20,10 @@ builder.AddServiceDefaults();
 // Redis L2 Distributed Cache
 builder.AddRedisDistributedCache("redis");
 
+// RabbitMQ Messaging via Aspire (Критерій 2, 7)
+builder.AddRabbitMQClient("messaging");
+builder.Services.AddHostedService<Reviews.WebApi.IntegrationEvents.CatalogEventsConsumer>();
+
 // L1 Memory Cache з обмеженням розміру (SizeLimit) та відстеженням статистики
 builder.Services.AddMemoryCache(options =>
 {

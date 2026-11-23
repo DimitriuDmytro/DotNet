@@ -71,4 +71,31 @@ public class ReviewRepository : IReviewRepository
             throw new NotFoundException($"Відгук з ID '{id}' не знайдено.");
         }
     }
+
+    public async Task<long> UpdateServiceNameAsync(long serviceId, string newName, DateTime occurredAt, CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<Review>.Filter.And(
+            Builders<Review>.Filter.Eq(r => r.ServiceId, serviceId),
+            Builders<Review>.Filter.Or(
+                Builders<Review>.Filter.Eq(r => r.UpdatedAt, null),
+                Builders<Review>.Filter.Lte(r => r.UpdatedAt, occurredAt)
+            )
+        );
+
+        var update = Builders<Review>.Update
+            .Set(r => r.ServiceName, newName.Trim())
+            .Set(r => r.UpdatedAt, occurredAt);
+
+        var result = await _context.Reviews.UpdateManyAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount;
+    }
+
+    public async Task<long> UpdateWorkReportsServiceNameAsync(long serviceId, string newName, DateTime occurredAt, CancellationToken cancellationToken = default)
+    {
+        var workReports = _context.Database.GetCollection<BsonDocument>("workReports");
+        var filter = Builders<BsonDocument>.Filter.Eq("serviceId", serviceId);
+        var update = Builders<BsonDocument>.Update.Set("serviceName", newName.Trim());
+        var result = await workReports.UpdateManyAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount;
+    }
 }
