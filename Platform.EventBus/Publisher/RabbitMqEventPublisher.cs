@@ -1,15 +1,18 @@
 namespace Platform.EventBus.Publisher;
 
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Platform.EventBus.Events;
+using Platform.EventBus.Metrics;
 using Platform.EventBus.Serialization;
 using Platform.EventBus.Tracing;
 using RabbitMQ.Client;
 
 /// <summary>
-/// Реалізація публікатора подій через RabbitMQ 7.x асинхронний IChannel (Критерій 5).
+/// Реалізація публікатора подій через RabbitMQ 7.x асинхронний IChannel (Критерій 5, 12).
+/// Підтримує W3C Trace Context (ActivityKind.Producer), CorrelationId та персистентні повідомлення.
 /// </summary>
 public sealed class RabbitMqEventPublisher : IEventPublisher
 {
@@ -54,19 +57,36 @@ public sealed class RabbitMqEventPublisher : IEventPublisher
             return;
         }
 
+        // Критерій 12: Запуск Producer Activity навколо відправки повідомлення
+        using var activity = TracePropagation.Source.StartActivity($"{exchange} publish", ActivityKind.Producer);
+        if (activity != null)
+        {
+            activity.SetTag("messaging.system", "rabbitmq");
+            activity.SetTag("messaging.destination.name", exchange);
+            activity.SetTag("messaging.destination.routing_key", routingKey);
+            activity.SetTag("messaging.message.id", @event.EventId.ToString());
+            activity.SetTag("messaging.operation", "publish");
+        }
+
         await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
+
+        var correlationId = @event.CorrelationId
+            ?? Activity.Current?.GetTagItem("correlation.id")?.ToString()
+            ?? Activity.Current?.Id
+            ?? Guid.NewGuid().ToString();
 
         var props = new BasicProperties
         {
             Persistent = true,
             ContentType = "application/json",
             MessageId = @event.EventId.ToString(),
-            Type = typeof(T).Name
+            Type = typeof(T).Name,
+            CorrelationId = correlationId
         };
 
         props.Headers = new Dictionary<string, object?>
         {
-            ["x-correlation-id"] = @event.CorrelationId ?? System.Diagnostics.Activity.Current?.Id ?? Guid.NewGuid().ToString()
+            ["x-correlation-id"] = correlationId
         };
 
         TracePropagation.Inject(props);
@@ -79,7 +99,7 @@ public sealed class RabbitMqEventPublisher : IEventPublisher
             @event.EventId,
             exchange,
             routingKey,
-            @event.CorrelationId);
+            correlationId);
 
         await channel.BasicPublishAsync(
             exchange: exchange,
@@ -88,5 +108,7 @@ public sealed class RabbitMqEventPublisher : IEventPublisher
             basicProperties: props,
             body: body,
             cancellationToken: ct);
+
+        EventBusMetrics.RecordPublished(typeof(T).Name, exchange);
     }
 }
