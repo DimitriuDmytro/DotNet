@@ -317,3 +317,19 @@ BEGIN
     PRINT N'Фільтрований індекс [IX_Appointments_ClientId_Active] створено.';
 END
 GO
+
+
+-- =====================================================================
+-- 5. Таблиця ProcessedEvents для забезпечення ідемпотентності споживача
+-- подій RabbitMQ (Лабораторна робота № 08, Критерій 9).
+-- =====================================================================
+IF OBJECT_ID(N'dbo.ProcessedEvents', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ProcessedEvents (
+        EventId UNIQUEIDENTIFIER NOT NULL,
+        ProcessedAt DATETIME2 NOT NULL CONSTRAINT DF_ProcessedEvents_ProcessedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_ProcessedEvents PRIMARY KEY CLUSTERED (EventId)
+    );
+    PRINT N'Таблицю [dbo.ProcessedEvents] створено.';
+END
+GO
