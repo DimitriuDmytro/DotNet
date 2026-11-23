@@ -1,0 +1,44 @@
+@model Platform.IdentityServer.Controllers.LoginViewModel
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Platform IdentityServer - Login</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f4f6f8; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 340px; }
+        .card h2 { margin-top: 0; margin-bottom: 1.5rem; color: #333; text-align: center; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 14px; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 0.75rem; background-color: #0066cc; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #0052a3; }
+        .validation-summary-errors { color: #cc0000; font-size: 13px; margin-bottom: 1rem; }
+        .hint { font-size: 12px; color: #777; margin-top: 1rem; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>IdentityServer Login</h2>
+        <div asp-validation-summary="All" class="validation-summary-errors"></div>
+        <form asp-controller="Account" asp-action="Login" method="post">
+            <input type="hidden" asp-for="ReturnUrl" />
+            <div class="form-group">
+                <label asp-for="Username">Username or Email</label>
+                <input asp-for="Username" autofocus />
+            </div>
+            <div class="form-group">
+                <label asp-for="Password">Password</label>
+                <input asp-for="Password" />
+            </div>
+            <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" asp-for="RememberLogin" />
+                <label asp-for="RememberLogin" style="margin-bottom: 0;">Remember My Login</label>
+            </div>
+            <button type="submit">Log In</button>
+        </form>
+        <div class="hint">Test accounts: <b>alice</b> (Admin) / <b>bob</b> (User)</div>
+    </div>
+</body>
+</html>

@@ -2031,3 +2031,104 @@ dotnet run --project Platform.AppHost
 #### 4. Перевірка ідемпотентності:
 - Опублікуйте у чергу `orders.catalog-sync` те саме повідомлення двічі з однаковим `MessageId`.
 - **Результат:** Перший виклик оновлює репліку та записує `EventId` у `dbo.ProcessedEvents`. Другий виклик фіксує дублікат у `dbo.ProcessedEvents`, логує попередження `Duplicate event detected... Skipping duplicate and ACKing` і відразу повертає `BasicAckAsync` без повторного оновлення.
+
+---
+
+## 17. Лабораторна робота №09: Аутентифікація та авторизація в мікросервісній архітектурі
+
+### 17.1. Архітектура безпеки платформи
+У Лабораторній роботі №09 реалізовано комплексну багаторівневу систему автентифікації та авторизації, що охоплює три взаємодоповнюючі підходи:
+1. **Частина 1 (ASP.NET Identity + JWT):** Власний мікросервіс `Auth.Api` з окремою базою даних `IdentityDb` на SQL Server, ASP.NET Core Identity, JWT-токенами з коротким строком життя (15 хв), SHA-256 хешованими Refresh-токенами (7 днів) з обов'язковою ротацією, захистом від повторного використання (reuse detection) та cookie-транспортом (`HttpOnly`, `Secure`, `SameSite=Strict`).
+2. **Частина 2 (Duende IdentityServer / OAuth 2.0 & OIDC):** Повнофункціональний Identity Provider `Platform.IdentityServer` з окремою базою даних `IdentityServerDb`, Entity Framework Core сховищами конфігурації та грантів (`ConfigurationDbContext`, `PersistedGrantDbContext`, `ApplicationDbContext`), підтримкою трьох типів клієнтів (`postman`, `aggregator_service`, `swagger` з PKCE) та інтерактивним Quickstart UI для логіну і logout.
+3. **Частина 3 (Keycloak + Pulumi IaC):** Інтеграція хмарного Identity Provider Keycloak в екосистему .NET Aspire (`builder.AddKeycloak("keycloak", 8080).WithDataVolume()`) та Infrastructure-as-Code проєкт у `infra/keycloak` на C# Pulumi, який декларативно розгортає Realm `DevRealmDrivers`, ролі (`admin`, `manager`, `user`, `guest`), ресурси, скоупи, клієнти, тестових користувачів та протокол-маппери.
+
+---
+
+### 17.2. Сервіс автентифікації `Auth.Api`
+- **Проєкт:** `Services/Auth/Auth.Api` (порт 5005).
+- **База даних:** Виділена БД `IdentityDb` на SQL Server через Aspire Orchestration.
+- **Модель користувача:** `ApplicationUser : IdentityUser` із додатковими полями `FirstName`, `LastName`, `CreatedAt`.
+- **Політики безпеки:**
+  - Паролі: мінімум 8 символів, наявність великих та малих літер, цифр і спеціальних символів.
+  - Блокування (Lockout): 5 невдалих спроб входу поспіль призводять до тимчасового блокування облікового запису на 15 хвилин.
+  - Обов'язкова верифікація email: непідтверджені облікові записи блокуються на етапі входу з кодом `403 Forbidden`.
+- **Ендпоінти аутентифікації:**
+  - `POST /auth/register` — реєстрація з автопризначенням ролі `User` та генерацією токена верифікації.
+  - `POST /auth/login` — вхід із перевіркою пароля, стану блокування, підтвердження email; повертає JWT access token у JSON та встановлює refresh token у `HttpOnly` cookie.
+  - `POST /auth/refresh-token` — ротація refresh токена. При виявленні скомпрометованого токена (reuse detection) негайно анулюються всі токени користувача.
+  - `POST /auth/revoke-token` — відкликання токена сесії (`[Authorize]`).
+  - `POST /auth/logout` — завершення сесії, анулювання токена в БД та видалення cookie (`[Authorize]`).
+  - `POST /auth/verify-email`, `POST /auth/resend-verification` — підтвердження пошти через токени.
+  - `POST /auth/forgot-password`, `POST /auth/reset-password` — скидання пароля без розкриття факту існування email; при скиданні пароля всі сесії та refresh-токени користувача інвалідуються.
+  - `POST /auth/change-password` — зміна діючого пароля (`[Authorize]`).
+
+---
+
+### 17.3. Управління користувачами (`/users`)
+- `GET /users` — список усіх користувачів системи (Тільки `Admin`).
+- `GET /users/{id}` — перегляд профілю користувача (Власник `sub == id` або `Admin`).
+- `PUT /users/{id}` — редагування профілю (Власник або `Admin`).
+- `DELETE /users/{id}` — видалення користувача (Тільки `Admin`).
+- `GET /users/{id}/refresh-tokens` — моніторинг активних сесій (Власник або `Admin`).
+- `GET /users/{id}/roles` — перегляд ролей (Аутентифікований користувач).
+- `POST /users/{id}/roles`, `DELETE /users/{id}/roles/{role}` — призначення/зняття ролей (Тільки `Admin`).
+
+---
+
+### 17.4. Duende IdentityServer (`Platform.IdentityServer`)
+- **База даних:** Окрема БД `IdentityServerDb`.
+- **Конфігураційні ресурси (К8):**
+  - Identity Resources: `OpenId()`, `Profile()`.
+  - API Resources: `orders_api`, `products_api`, `payments_api`.
+  - API Scopes: `orders.read`, `orders.write`, `products.read`, `products.write`, `payments.read`, `payments.process`, `payments.refund`.
+- **Клієнти:**
+  1. `postman`: `authorization_code` + secret (`postman-secret`), призначений для ручного та автоматизованого тестування.
+  2. `aggregator_service`: `client_credentials` + secret (`aggregator-secret`), M2M-клієнт без `sub` claim.
+  3. `swagger`: `authorization_code` + PKCE (`RequireClientSecret = false`, `RequirePkce = true`), публічний клієнт.
+- **Aggregator M2M Integration (К9):** В `Platform.Aggregator` впроваджено `IdentityServerTokenService` та делегуючий обробник `IdentityServerAuthHandler`, які отримують, кешують M2M Bearer токен в `IMemoryCache` та додають його до всіх викликів до downstream сервісів.
+
+---
+
+### 17.5. Keycloak через Aspire та Pulumi IaC
+- **Aspire Host (К10):** В `Platform.AppHost/AppHost.cs` зареєстровано `builder.AddKeycloak("keycloak", 8080).WithDataVolume()`.
+- **Pulumi Проєкт (К11, К12):** Розташований у `infra/keycloak/` (C# Pulumi SDK).
+  - Створює Realm `DevRealmDrivers`.
+  - Оголошує ролі: `admin`, `manager`, `user`, `guest`.
+  - Створює клієнтські скоупи та ресурсні сервери: `orders-api`, `products-api`, `payments-api`.
+  - Створює клієнти `postman`, `swagger`, `aggregator_service`.
+  - Створює протокол-маппер `mapper-permissions` для claims `authorization.permissions`.
+  - Створює 4 тестові користувачі:
+    - `alice` (пароль `Alice123!Secure`) — роль `admin`.
+    - `john.manager` (пароль `Manager123!Secure`) — роль `manager`.
+    - `bob` (пароль `Bob123!Secure`) — роль `user`.
+    - `guest` (пароль `Guest123!Secure`) — роль `guest`.
+  - Експортує outputs: `RealmUrl`, `AdminConsoleUrl`, `ClientIds`, `ClientSecrets`.
+
+---
+
+### 17.6. Захист мікросервісів та Permission-Based авторизація (`[RequirePermission]`)
+- **Бібліотека `Platform.Security`:**
+  - `[RequirePermission("orders:create")]` — декларативний атрибут авторизації.
+  - `PermissionPolicyProvider` — динамічний постачальник політик авторизації `perm:...`.
+  - `PermissionAuthorizationHandler` — уніфікований обробник, який підтримує:
+    - Безумовний пропуск адміністратора (`Role == "Admin"`).
+    - Перевірку масиву прав `permissions` у токені.
+    - Перевірку прав у UMA-клеймі `authorization` від Keycloak (`permissions: [{ scopes: [...] }]`).
+    - Перевірку скоупів OAuth 2.0 (`scope`, включно з трансляцією `products.read` -> `products:read`).
+    - Безпечну обробку помилок без винятків при відсутності або пошкодженні клеймів.
+- **Захист ендпоінтів:**
+  - **Orders (Bookings):** `orders:read`, `orders:create`, `orders:update`, `orders:delete`, `orders:approve`.
+  - **Products (Catalog):** `products:read`, `products:create`, `products:update`, `products:delete`, `products:publish`.
+  - **Payments:** `payments:read`, `payments:process`, `payments:refund` — **доступно виключно для ролі `admin`**!
+  - **Health Checks & OpenAPI:** Залишаються анонімними та публічно доступними (`/health`, `/health/ready`, `/swagger`).
+
+---
+
+### 17.7. Артефакти та документація
+- **Матриця доступу:** Повний опис правил доступу та ролей оформлено в [docs/auth-matrix.md](file:///d:/detailing-db/docs/auth-matrix.md).
+- **Postman-колекція:** Готові сценарії запитів та тестів знаходяться у [docs/postman/Lab09.postman_collection.json](file:///d:/detailing-db/docs/postman/Lab09.postman_collection.json).
+- **Unit-тести:** Проєкт `Platform.Security.Tests` покриває автоматизованими тестами:
+  - Генерацію, підпис та валідацію JWT-токенів.
+  - SHA-256 хешування та безпечну ротацію Refresh-токенів.
+  - Reuse detection із масовим відкликанням сесій при повторному використанні.
+  - Роботу `PermissionAuthorizationHandler` з усіма типами токенів (Admin bypass, Keycloak UMA, Scopes, Safe Error Handling).

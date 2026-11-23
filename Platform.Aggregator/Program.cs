@@ -10,6 +10,7 @@ using Microsoft.Extensions.Http.Resilience;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Grpc;
 using Platform.Aggregator.HealthChecks;
+using Platform.Aggregator.Security;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
 using Polly;
@@ -38,6 +39,11 @@ builder.Services.AddHealthChecks()
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<GrpcClientLoggingInterceptor>();
 builder.Services.AddSingleton<AggregatorCacheMetrics>();
+
+// IdentityServer M2M Token Service & Auth Handler (К9)
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IIdentityServerTokenService, IdentityServerTokenService>();
+builder.Services.AddTransient<IdentityServerAuthHandler>();
 
 // ProblemDetails для стандартизованих помилок (AG-27)
 builder.Services.AddProblemDetails();
@@ -142,6 +148,7 @@ builder.Services.AddHealthChecks()
 
 // 1. CatalogClient (Критичний сервіс: читання деталей послуг)
 builder.Services.AddHttpClient<CatalogClient>(c => c.BaseAddress = new("https+http://catalog-api"))
+    .AddHttpMessageHandler<IdentityServerAuthHandler>()
     .RemoveAllResilienceHandlers()
     .AddStandardResilienceHandler(options =>
     {
@@ -191,6 +198,7 @@ builder.Services.AddHttpClient<CatalogClient>(c => c.BaseAddress = new("https+ht
 
 // 2. OrdersClient (Критичний сервіс: бронювання та замовлення)
 builder.Services.AddHttpClient<OrdersClient>(c => c.BaseAddress = new("https+http://bookings-api"))
+    .AddHttpMessageHandler<IdentityServerAuthHandler>()
     .RemoveAllResilienceHandlers()
     .AddStandardResilienceHandler(options =>
     {

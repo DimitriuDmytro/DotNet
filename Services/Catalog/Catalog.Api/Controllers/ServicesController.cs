@@ -2,8 +2,10 @@ namespace Catalog.Api.Controllers;
 
 using System.Diagnostics;
 using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Platform.Security.Permissions;
 using Catalog.Api.Metrics;
 using Catalog.Bll.DTOs;
 using Catalog.Bll.Interfaces;
@@ -14,6 +16,9 @@ using Catalog.Bll.Interfaces;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/products")]
+[Route("products")]
+[Authorize]
 public class ServicesController : ControllerBase
 {
     private static readonly ActivitySource Source = new("Catalog.Api");
@@ -35,6 +40,7 @@ public class ServicesController : ControllerBase
     /// Отримання пагінованого списку послуг із фільтрацією та сортуванням на рівні SQL (Критерій 10).
     /// </summary>
     [HttpGet]
+    [RequirePermission("products:read")]
     [ProducesResponseType(typeof(PagedResult<ServiceDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ServiceDto>>> GetAll(
         [FromQuery] ServiceQuery query,
@@ -68,6 +74,7 @@ public class ServicesController : ControllerBase
     /// Отримання послуги за ID разом із категорією, специфікацією, фотографіями та пакетами.
     /// </summary>
     [HttpGet("{id:long}")]
+    [RequirePermission("products:read")]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServiceDetailDto>> GetById(long id, CancellationToken cancellationToken = default)
@@ -148,6 +155,7 @@ public class ServicesController : ControllerBase
     /// Створення нової послуги в каталозі.
     /// </summary>
     [HttpPost]
+    [RequirePermission("products:create")]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
@@ -192,6 +200,7 @@ public class ServicesController : ControllerBase
     /// Оновлення інформації про послугу.
     /// </summary>
     [HttpPut("{id:long}")]
+    [RequirePermission("products:update")]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -234,6 +243,7 @@ public class ServicesController : ControllerBase
     /// Зміна вартості послуги із доменною валідацією.
     /// </summary>
     [HttpPatch("{id:long}/price")]
+    [RequirePermission("products:update")]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -277,6 +287,7 @@ public class ServicesController : ControllerBase
     /// М'яке видалення послуги (Soft Delete).
     /// </summary>
     [HttpDelete("{id:long}")]
+    [RequirePermission("products:delete")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken = default)
@@ -299,6 +310,22 @@ public class ServicesController : ControllerBase
             _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "delete", "failure");
             throw;
         }
+    }
+
+    [HttpPost("{id:long}/publish")]
+    [RequirePermission("products:publish")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Publish(long id, CancellationToken cancellationToken = default)
+    {
+        var service = await _serviceService.GetByIdAsync(id, cancellationToken);
+        if (service == null)
+        {
+            return NotFound(new ProblemDetails { Title = "Not Found", Detail = $"Service #{id} not found" });
+        }
+
+        _logger.LogInformation("ServicesController: Публікація послуги #{ServiceId}", id);
+        return Ok(new { message = $"Service #{id} published successfully", serviceId = id });
     }
 
     /// <summary>

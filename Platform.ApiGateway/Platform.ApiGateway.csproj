@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Platform.Security\Platform.Security.csproj" />
   </ItemGroup>
 
 </Project>

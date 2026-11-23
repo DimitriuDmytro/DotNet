@@ -1,5 +1,12 @@
 <Solution>
+  <Folder Name="/infra/" />
+  <Folder Name="/infra/keycloak/">
+    <Project Path="infra/keycloak/KeycloakInfra.csproj" />
+  </Folder>
   <Folder Name="/Services/" />
+  <Folder Name="/Services/Auth/">
+    <Project Path="Services/Auth/Auth.Api/Auth.Api.csproj" />
+  </Folder>
   <Folder Name="/Services/Bookings/">
     <Project Path="Services/Bookings/Bookings.Api/Bookings.Api.csproj" />
     <Project Path="Services/Bookings/Bookings.Bll/Bookings.Bll.csproj" />
@@ -14,6 +21,9 @@
     <Project Path="Services/Catalog/Catalog.Domain/Catalog.Domain.csproj" />
     <Project Path="Services/Catalog/Catalog.Tests/Catalog.Tests.csproj" />
   </Folder>
+  <Folder Name="/Services/Payments/">
+    <Project Path="Services/Payments/Payments.Api/Payments.Api.csproj" />
+  </Folder>
   <Folder Name="/Services/Reviews/">
     <Project Path="Services/Reviews/Reviews.Application/Reviews.Application.csproj" />
     <Project Path="Services/Reviews/Reviews.Domain/Reviews.Domain.csproj" />
@@ -27,4 +37,7 @@
   <Project Path="Platform.Aggregator/Platform.Aggregator.csproj" />
   <Project Path="Platform.EventBus/Platform.EventBus.csproj" />
   <Project Path="Platform.EventBus.Tests/Platform.EventBus.Tests.csproj" />
+  <Project Path="Platform.IdentityServer/Platform.IdentityServer.csproj" />
+  <Project Path="Platform.Security.Tests/Platform.Security.Tests.csproj" />
+  <Project Path="Platform.Security/Platform.Security.csproj" />
 </Solution>

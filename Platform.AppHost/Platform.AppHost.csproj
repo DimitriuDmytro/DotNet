@@ -15,6 +15,9 @@
     <ProjectReference Include="..\Services\Bookings\Bookings.Api\Bookings.Api.csproj" />
     <ProjectReference Include="..\Services\Catalog\Catalog.Api\Catalog.Api.csproj" />
     <ProjectReference Include="..\Services\Reviews\Reviews.WebApi\Reviews.WebApi.csproj" />
+    <ProjectReference Include="..\Services\Auth\Auth.Api\Auth.Api.csproj" />
+    <ProjectReference Include="..\Services\Payments\Payments.Api\Payments.Api.csproj" />
+    <ProjectReference Include="..\Platform.IdentityServer\Platform.IdentityServer.csproj" />
     <ProjectReference Include="..\Platform.ApiGateway\Platform.ApiGateway.csproj" />
     <ProjectReference Include="..\Platform.Aggregator\Platform.Aggregator.csproj" />
   </ItemGroup>

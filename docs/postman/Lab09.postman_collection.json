@@ -1,0 +1,434 @@
+{
+  "info": {
+    "_postman_id": "f58d927a-85b3-4632-a720-33ea7106d209",
+    "name": "Lab 09 - Authentication & Authorization Platform",
+    "description": "Postman-колекція запитів для Лабораторної роботи №09 (ASP.NET Identity + JWT, Duende IdentityServer, Keycloak IaC, Permission-based Authorization)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "authUrl",
+      "value": "http://localhost:5005",
+      "type": "string"
+    },
+    {
+      "key": "identityServerUrl",
+      "value": "http://localhost:5001",
+      "type": "string"
+    },
+    {
+      "key": "keycloakUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Auth Service (ASP.NET Identity)",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"User123!Secure\",\n  \"userName\": \"newuser\",\n  \"firstName\": \"New\",\n  \"lastName\": \"User\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.accessToken) {",
+                  "    pm.collectionVariables.set('accessToken', jsonData.accessToken);",
+                  "    pm.collectionVariables.set('userId', jsonData.userId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@platform.local\",\n  \"password\": \"Admin123!Secure\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.accessToken) {",
+                  "    pm.collectionVariables.set('accessToken', jsonData.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh-token",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh-token"]
+            }
+          }
+        },
+        {
+          "name": "Revoke Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/revoke-token",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "revoke-token"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@platform.local\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "forgot-password"]
+            }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Admin123!Secure\",\n  \"newPassword\": \"Admin456!Secure\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "change-password"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Users Management (/users)",
+      "item": [
+        {
+          "name": "Get All Users (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          }
+        },
+        {
+          "name": "Get User By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get User Refresh Tokens",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/refresh-tokens",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}", "refresh-tokens"]
+            }
+          }
+        },
+        {
+          "name": "Get User Roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}", "roles"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Duende IdentityServer",
+      "item": [
+        {
+          "name": "M2M Token (Client Credentials)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "client_id", "value": "aggregator_service", "type": "text" },
+                { "key": "client_secret", "value": "aggregator-secret", "type": "text" },
+                { "key": "grant_type", "value": "client_credentials", "type": "text" },
+                { "key": "scope", "value": "orders.read products.read", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{identityServerUrl}}/connect/token",
+              "host": ["{{identityServerUrl}}"],
+              "path": ["connect", "token"]
+            }
+          }
+        },
+        {
+          "name": "Discovery Document (.well-known)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{identityServerUrl}}/.well-known/openid-configuration",
+              "host": ["{{identityServerUrl}}"],
+              "path": [".well-known", "openid-configuration"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Keycloak (DevRealmDrivers)",
+      "item": [
+        {
+          "name": "Discovery Document",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{keycloakUrl}}/realms/DevRealmDrivers/.well-known/openid-configuration",
+              "host": ["{{keycloakUrl}}"],
+              "path": ["realms", "DevRealmDrivers", ".well-known", "openid-configuration"]
+            }
+          }
+        },
+        {
+          "name": "Direct Access Token (Alice Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "client_id", "value": "postman", "type": "text" },
+                { "key": "client_secret", "value": "postman-secret", "type": "text" },
+                { "key": "grant_type", "value": "password", "type": "text" },
+                { "key": "username", "value": "alice", "type": "text" },
+                { "key": "password", "value": "Alice123!Secure", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{keycloakUrl}}/realms/DevRealmDrivers/protocol/openid-connect/token",
+              "host": ["{{keycloakUrl}}"],
+              "path": ["realms", "DevRealmDrivers", "protocol", "openid-connect", "token"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Protected Microservices",
+      "item": [
+        {
+          "name": "Orders - Read (orders:read)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "1"]
+            }
+          }
+        },
+        {
+          "name": "Orders - Approve (orders:approve)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/1/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "1", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Products - Read (products:read)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "Payments - Read (payments:read - Admin Only)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments"]
+            }
+          }
+        },
+        {
+          "name": "Payments - Process (payments:process - Admin Only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNumber\": \"ORD-9999\",\n  \"amount\": 250.00,\n  \"currency\": \"USD\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/process",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "process"]
+            }
+          }
+        },
+        {
+          "name": "Aggregator - Full Order (Composite)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/aggregator/orders/1/full",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "aggregator", "orders", "1", "full"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

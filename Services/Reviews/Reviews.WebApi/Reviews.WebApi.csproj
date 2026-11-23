@@ -11,6 +11,7 @@
     <ProjectReference Include="..\Reviews.Infrastructure\Reviews.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\..\Platform.EventBus\Platform.EventBus.csproj" />
+    <ProjectReference Include="..\..\..\Platform.Security\Platform.Security.csproj" />
   </ItemGroup>
 
   <ItemGroup>

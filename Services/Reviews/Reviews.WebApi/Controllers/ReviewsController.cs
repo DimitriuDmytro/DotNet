@@ -13,10 +13,13 @@ using Reviews.Application.Reviews.Queries.GetReviewsList;
 using Reviews.Domain.Exceptions;
 using Reviews.WebApi.Metrics;
 
+using Microsoft.AspNetCore.Authorization;
+
 /// <summary>
 /// REST API контролер для управління відгуками клієнтів детейлінг-студії (Критерій 12).
 /// Працює через MediatR з підтримкою структурованого логування, бізнес-метрик та трасування OpenTelemetry.
 /// </summary>
+[Authorize]
 public class ReviewsController : ApiController
 {
     private static readonly ActivitySource Source = new("Reviews.WebApi");

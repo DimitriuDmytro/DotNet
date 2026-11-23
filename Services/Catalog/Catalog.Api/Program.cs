@@ -127,6 +127,10 @@ builder.Services.AddScoped<IPackageRepository, PackageRepository>();
 builder.Services.AddScoped<IServiceCategoryService, ServiceCategoryService>();
 builder.Services.AddScoped<IPackageService, PackageService>();
 
+// Authentication & Authorization (К6, К9, К13)
+builder.Services.AddPlatformJwtBearer(builder.Configuration);
+builder.Services.AddPermissionAuthorization();
+
 var app = builder.Build();
 
 // Middleware кореляційного ID одразу після Build
@@ -144,6 +148,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();

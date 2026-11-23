@@ -8,6 +8,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Aspire Service Defaults
 builder.AddServiceDefaults();
 
+// Authentication & Authorization on Gateway level (К6)
+builder.Services.AddPlatformJwtBearer(builder.Configuration);
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("RequireAuthenticated", policy => policy.RequireAuthenticatedUser());
+});
+
 // YARP Reverse Proxy з підтримкою Aspire Service Discovery
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
@@ -19,6 +26,10 @@ var routingLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogg
 
 // CorrelationId Middleware ОБОВ'ЯЗКОВО до MapReverseProxy
 app.UseMiddleware<CorrelationIdMiddleware>();
+
+// Authentication & Authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Логування маршрутизації, IP клієнта, розміру відповіді та помилок зв'язку (GW-15, GW-16, GW-17)
 app.Use(async (context, next) =>

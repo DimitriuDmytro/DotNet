@@ -1,8 +1,10 @@
 namespace Bookings.Api.Controllers;
 
 using System.Diagnostics;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Platform.Security.Permissions;
 using Bookings.Api.Metrics;
 using Bookings.Bll.DTOs;
 using Bookings.Bll.Interfaces;
@@ -13,6 +15,9 @@ using Bookings.Bll.Interfaces;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/orders")]
+[Route("orders")]
+[Authorize]
 public class AppointmentsController : ControllerBase
 {
     private static readonly ActivitySource Source = new("Bookings.Api");
@@ -31,6 +36,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpGet("{id:long}")]
+    [RequirePermission("orders:read")]
     [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<AppointmentDto>> GetById(long id, CancellationToken cancellationToken = default)
@@ -56,6 +62,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpGet("client/{clientId:long}")]
+    [RequirePermission("orders:read")]
     [ProducesResponseType(typeof(IReadOnlyList<AppointmentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<AppointmentDto>>> GetByClientId(
@@ -92,6 +99,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission("orders:create")]
     [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -122,6 +130,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpPatch("{id:long}/status")]
+    [RequirePermission("orders:update")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -151,6 +160,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpPost("{id:long}/deliver")]
+    [RequirePermission("orders:approve")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
@@ -177,7 +187,14 @@ public class AppointmentsController : ControllerBase
         }
     }
 
+    [HttpPost("{id:long}/approve")]
+    [RequirePermission("orders:approve")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public Task<IActionResult> Approve(long id, [FromQuery] string? changedBy = null, CancellationToken cancellationToken = default)
+        => DeliverCar(id, changedBy, cancellationToken);
+
     [HttpPost("{id:long}/cancel")]
+    [RequirePermission("orders:delete")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
@@ -204,7 +221,20 @@ public class AppointmentsController : ControllerBase
         }
     }
 
+    [HttpDelete("{id:long}")]
+    [RequirePermission("orders:delete")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public Task<IActionResult> Delete(long id, [FromQuery] string? changedBy = null, CancellationToken cancellationToken = default)
+        => Cancel(id, changedBy, cancellationToken);
+
+    [HttpPut("{id:long}")]
+    [RequirePermission("orders:update")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public Task<IActionResult> Update(long id, [FromBody] ChangeStatusDto dto, CancellationToken cancellationToken = default)
+        => ChangeStatus(id, dto, cancellationToken);
+
     [HttpGet("{id:long}/history")]
+    [RequirePermission("orders:read")]
     [ProducesResponseType(typeof(IReadOnlyList<StatusHistoryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<StatusHistoryDto>>> GetStatusHistory(long id, CancellationToken cancellationToken = default)

@@ -109,6 +109,10 @@ builder.Services.AddScoped<IClientService, ClientService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICatalogQueryService, CatalogQueryService>();
 
+// Authentication & Authorization (К6, К9, К13)
+builder.Services.AddPlatformJwtBearer(builder.Configuration);
+builder.Services.AddPermissionAuthorization();
+
 var app = builder.Build();
 
 // CorrelationId middleware одразу після Build
@@ -123,6 +127,7 @@ app.UseSwaggerUI(c =>
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Bookings API v1");
 });
 
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGrpcService<BookingsGrpcService>();

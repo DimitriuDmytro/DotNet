@@ -91,6 +91,10 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// Authentication & Authorization (К6, К9, К13)
+builder.Services.AddPlatformJwtBearer(builder.Configuration);
+builder.Services.AddPermissionAuthorization();
+
 var app = builder.Build();
 
 // CorrelationId middleware одразу після Build
@@ -103,6 +107,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Reviews API v1"));
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 app.MapGrpcService<ReviewsGrpcService>();
