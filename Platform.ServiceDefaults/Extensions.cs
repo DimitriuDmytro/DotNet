@@ -109,7 +109,8 @@ public static class Extensions
                         "Catalog.Cache",
                         "Bookings.Cache",
                         "Reviews.Cache",
-                        "Aggregator.Cache");
+                        "Aggregator.Cache",
+                        "Platform.Messaging");
             })
             .WithTracing(tracing =>
             {
