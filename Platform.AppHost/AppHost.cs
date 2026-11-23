@@ -9,7 +9,12 @@ var sql = builder.AddSqlServer("sql", sqlPassword)
 var bookingsDb = sql.AddDatabase("BookingsDb");
 var catalogDb = sql.AddDatabase("CatalogDb");
 var identityDb = sql.AddDatabase("IdentityDb");
-var identityServerDb = sql.AddDatabase("IdentityServerDb");
+
+// Окремий SQL Server для Duende IdentityServer (Критерій 7)
+var identityServerSql = builder.AddSqlServer("identityserver-sql", sqlPassword)
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent);
+var identityServerDb = identityServerSql.AddDatabase("IdentityServerDb");
 
 // База даних MongoDB для відгуків та звітів
 var mongo = builder.AddMongoDB("mongo")

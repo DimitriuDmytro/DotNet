@@ -115,7 +115,8 @@ public static class SecurityServiceCollectionExtensions
             {
                 ValidateIssuer = true,
                 ValidIssuer = $"http://localhost:8080/realms/{realm}",
-                ValidateAudience = false,
+                ValidateAudience = true,
+                ValidAudiences = new[] { "account", "orders-api", "products-api", "payments-api" },
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.FromSeconds(30)
             };

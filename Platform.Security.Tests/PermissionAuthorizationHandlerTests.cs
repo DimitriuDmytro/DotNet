@@ -17,14 +17,6 @@ public class PermissionAuthorizationHandlerTests
     }
 
     [Fact]
-    public void CheckAppDomainFriendlyName()
-    {
-        var name = AppDomain.CurrentDomain.FriendlyName;
-        Console.WriteLine("=== FriendlyName: " + name + " ===");
-        Assert.True(name.Length > 0);
-    }
-
-    [Fact]
     public async Task HandleAsync_WhenUserIsAdmin_ShouldSucceedWithoutSpecificPermission()
     {
         // Arrange

@@ -97,7 +97,8 @@ using (var scope = app.Services.CreateScope())
                 FirstName = "Platform",
                 LastName = "Administrator"
             };
-            var result = await userManager.CreateAsync(adminUser, "Admin123!Secure");
+            var adminPassword = builder.Configuration["Seed:AdminPassword"] ?? "Admin123!Secure"; // Лише для локальної розробки
+        var result = await userManager.CreateAsync(adminUser, adminPassword);
             if (result.Succeeded)
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
