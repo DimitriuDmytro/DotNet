@@ -81,7 +81,8 @@ public sealed class BookingsTwoLevelCache : IBookingsTwoLevelCache
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "L2 cache unavailable for {CacheKey}", key);
+                // Відмовостійкість до Redis: помилка не валить запит (Критерій 5: Graceful degradation)
+                _logger.LogWarning(ex, "Redis unavailable, falling back to database for {Key}", key);
             }
 
             if (l2Bytes is not null && l2Bytes.Length > 0)
@@ -130,7 +131,7 @@ public sealed class BookingsTwoLevelCache : IBookingsTwoLevelCache
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "L2 cache unavailable for {CacheKey} при записі", key);
+                _logger.LogWarning(ex, "Redis unavailable when writing cache for {Key}", key);
             }
 
             SetL1(key, dbValue, effectiveSettings);
@@ -162,7 +163,7 @@ public sealed class BookingsTwoLevelCache : IBookingsTwoLevelCache
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "L2 cache unavailable for {CacheKey} при видаленні", key);
+            _logger.LogWarning(ex, "Redis unavailable when removing cache for {Key}", key);
         }
 
         _metrics.Invalidation(reason);
@@ -185,7 +186,7 @@ public sealed class BookingsTwoLevelCache : IBookingsTwoLevelCache
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "L2 cache unavailable for {CacheKey} при пакетному видаленні", key);
+                _logger.LogWarning(ex, "Redis unavailable when removing cache for {Key}", key);
             }
         }
 

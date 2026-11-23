@@ -72,7 +72,8 @@ public sealed class GrpcOrderAggregationService : IOrderAggregationService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Помилка читання з Redis кешу агрегатора для #{AppointmentId}", appointmentId);
+                // Відмовостійкість до Redis: помилка не валить агрегацію (Критерій 5: Graceful degradation)
+                _logger.LogWarning(ex, "Redis unavailable, falling back to database for {Key}", cacheKey);
             }
         }
         else
@@ -231,7 +232,7 @@ public sealed class GrpcOrderAggregationService : IOrderAggregationService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to cache aggregated order #{AppointmentId} in Redis", appointmentId);
+                _logger.LogWarning(ex, "Redis unavailable when writing cache for {Key}", cacheKey);
             }
         }
         else if (!warnings.IsEmpty)

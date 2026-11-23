@@ -16,36 +16,45 @@ var mongo = builder.AddMongoDB("mongo")
 
 var reviewsDb = mongo.AddDatabase("ReviewsDb");
 
-// Сховище Redis для дворівневого кешування (L2) (Критерій 1)
+// Сховище Redis для дворівневого кешування (L2)
 var redis = builder.AddRedis("redis")
     .WithDataVolume()
     .WithLifetime(ContainerLifetime.Persistent);
 
-// Мікросервіси платформи
+// Критерій 12: Налаштування WithHttpHealthCheck("/health/ready") та ланцюжків WaitFor
+
+// 1. Мікросервіс бронювань
 var bookings = builder.AddProject<Projects.Bookings_Api>("bookings-api")
     .WithReference(bookingsDb).WaitFor(bookingsDb)
-    .WithReference(redis).WaitFor(redis);
+    .WithReference(redis).WaitFor(redis)
+    .WithHttpHealthCheck("/health/ready");
 
+// 2. Мікросервіс каталогу послуг
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
     .WithReference(catalogDb).WaitFor(catalogDb)
-    .WithReference(redis).WaitFor(redis);
+    .WithReference(redis).WaitFor(redis)
+    .WithHttpHealthCheck("/health/ready");
 
+// 3. Мікросервіс відгуків
 var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
-    .WithReference(redis).WaitFor(redis);
+    .WithReference(redis).WaitFor(redis)
+    .WithHttpHealthCheck("/health/ready");
 
-// Агрегатор залежить від усіх трьох сервісів та Redis
+// 4. Композитний сервіс агрегації (Aggregator)
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithReference(bookings).WithReference(catalog).WithReference(reviews)
     .WithReference(redis)
-    .WaitFor(bookings).WaitFor(catalog).WaitFor(reviews).WaitFor(redis);
+    .WaitFor(bookings).WaitFor(catalog).WaitFor(reviews).WaitFor(redis)
+    .WithHttpHealthCheck("/health/ready");
 
-// API Gateway на фіксованому порті 5000, залежить від сервісів та агрегатора
+// 5. API Gateway на фіксованому порті 5000, залежить від сервісів та агрегатора
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")
     .WithExternalHttpEndpoints()
     .WithReference(bookings).WithReference(catalog).WithReference(reviews)
     .WithReference(aggregator)
-    .WaitFor(aggregator);
+    .WaitFor(aggregator).WaitFor(bookings).WaitFor(catalog).WaitFor(reviews)
+    .WithHttpHealthCheck("/health/ready");
 
 builder.Build().Run();

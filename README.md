@@ -1648,3 +1648,202 @@ curl -i -k "https://localhost:7020/health"
     ├── Catalog/                 ★ Сервіс «Каталог» (catalog.proto, CatalogGrpcService, TwoLevelCache, Warmup)
     └── Reviews/                 ★ Сервіс «Відгуки» (reviews.proto, ReviewsGrpcService, CachingBehavior, TwoLevelCache)
 ```
+
+---
+
+## 15. Лабораторна робота №07: Відмовостійкість (Resilience), бізнес-метрики та багаторівневі Health Checks на .NET Aspire
+
+У рамках Лабораторної роботи №07 платформу розширено комплексними механізмами забезпечення надійності, спостережуваності та автоматичного моніторингу працездатності:
+1. **Resilience конвеєри (Polly v8 / `Microsoft.Extensions.Http.Resilience`):** захист від каскадних збоїв (Cascading Failures) на рівні `ServiceDefaults` та диференційовані політики у `Platform.Aggregator`.
+2. **gRPC Retry Policy:** нативна конфігурація повторних спроб через `ServiceConfig` клієнтських каналів з exponential backoff та jitter.
+3. **Graceful Degradation Redis:** безпечна робота при відмові розподіленого кешу L2 у всіх сервісах платформи.
+4. **Бізнес-метрики (`IMeterFactory`):** лічильники (Counters), гістограми затримок бізнес-операцій (Histograms, unit: `ms`, низька кардинальність) та спостережувані датчики (ObservableGauges).
+5. **Багаторівневі Health Checks:** перевірка баз даних (SQL Server, MongoDB), кешу Redis зі статусом `Degraded`, gRPC Health Checking Protocol та клієнтські перевірки downstream сервісів в Aggregator.
+6. **Розділені Liveness (`/health/live`) та Readiness (`/health/ready`) ендпоінти:** структурований JSON з деталізацією кожної залежності, доступний у всіх середовищах.
+7. **Aspire оркестрація (`Platform.AppHost`):** декларативна реєстрація `.WithHttpHealthCheck("/health/ready")` та ланцюжків `.WaitFor(...)`.
+8. **Симуляція збоїв (Failure Injection):** Development-ендпоінти `/api/_test/delay` та `/api/_test/fail` у мікросервісі Reviews.
+
+---
+
+### 15.1. Матриця політик відмовостійкості (Resilience Policy Matrix)
+
+| Клієнт | Сервіс призначення | Критичність | Механізм | Retry (Attempts, Backoff, Jitter) | Circuit Breaker (FailureRatio, Duration) | Timeouts (Attempt / Total) | Обґрунтування конфігурації |
+|---|---|---|---|---|---|---|---|
+| **За замовчуванням** | Усі HTTP-клієнти | Базова | `AddStandardResilienceHandler` | 3 спроби, Exponential, Jitter | 0.5 ratio, 10s sample, 5s break | 2s attempt / 30s total | Захист від транзитних збоїв мережі та каскадних відмов для всіх вихідних викликів платформи (`ServiceDefaults`). |
+| **CatalogClient** | `catalog-api` | **Критична** | Custom HTTP Resilience | **5 спроб**, Delay 500ms, Exp backoff, Jitter, Safe methods only | **0.3 ratio**, 10s sample, **15s break**, Min 10 calls | **3s** attempt / **20s** total | Каталог є обов'язковим для розрахунку вартості замовлення. Суворий Circuit Breaker (0.3) захищає перевантажену БД, а 5 повторів дають максимальний шанс на успіх. |
+| **OrdersClient** | `bookings-api` | **Критична** | Custom HTTP Resilience | **3 спроби**, Delay 500ms, Exp backoff, Jitter, Safe methods only | **0.4 ratio**, 10s sample, **15s break**, Min 5 calls | **3s** attempt / **15s** total | Замовлення є System of Record. Ретрай застосовується тільки для безпечних (GET) методів для запобігання дублюванню операцій. |
+| **ReviewsClient** | `reviews-api` | **Некритична** | Custom HTTP Resilience | **1 спроба**, Delay 200ms | **0.7 ratio**, 10s sample, **5s break**, Min 5 calls | **2s** attempt / **5s** total | Відгуки є допоміжними. Агрегатор підтримує часткову деградацію: краще швидко віддати картку без відгуків (за 2-5с), ніж блокувати відповідь клієнту. |
+| **Catalog gRPC** | `catalog-api` | **Критична** | Channel `ServiceConfig` Retry | **4 спроби**, Initial 500ms, Max 4s, Multiplier 2 (`Unavailable`, `ResourceExhausted`) | — | Deadline 5s | Високонадійна gRPC-комунікація з автоматичним відновленням при транзитних збоях контейнера або перевантаженні пулу. |
+| **Bookings gRPC** | `bookings-api` | **Критична** | Channel `ServiceConfig` Retry | **4 спроби**, Initial 500ms, Max 4s, Multiplier 2 (`Unavailable`, `ResourceExhausted`) | — | Deadline 5s | Забезпечує надійне зчитування статусу запису та даних клієнта з ADO.NET/Dapper сервісу. |
+| **Reviews gRPC** | `reviews-api` | **Некритична** | Channel `ServiceConfig` Retry | **2 спроби**, Initial 200ms, Max 1s, Multiplier 1.5 (`Unavailable`) | — | Deadline 2s | Швидкий вихід при недоступності сервісу відгуків для повернення часткової відповіді без уповільнення загального часу відповіді. |
+
+---
+
+### 15.2. Каталог бізнес-метрик платформи (Business Metrics Catalog)
+
+Усі метрики створені за допомогою `IMeterFactory` та зареєстровані в OpenTelemetry конвеєрі `Platform.ServiceDefaults`:
+
+| Сервіс | Назва Meter | Назва метрики | Тип | Одиниця | Теги (Низька кардинальність) | Значення тегів | Опис |
+|---|---|---|---|---|---|---|---|
+| **Bookings.Api** | `Bookings.Api` | `bookings.created` | Counter | `{booking}` | — | — | Загальна кількість створених бронювань |
+| **Bookings.Api** | `Bookings.Api` | `bookings.status_changed` | Counter | `{change}` | `from_status`, `to_status` | `Pending`, `Confirmed`, `InProgress`, `ReadyForPickup`, `Completed`, `Cancelled` | Кількість переходів між статусами |
+| **Bookings.Api** | `Bookings.Api` | `bookings.cancelled` | Counter | `{booking}` | — | — | Загальна кількість скасованих бронювань |
+| **Bookings.Api** | `Bookings.Api` | `bookings.active_count` | ObservableGauge | `{booking}` | — | — | Поточна кількість активних/очікуючих бронювань |
+| **Bookings.Api** | `Bookings.Api` | `bookings.operation.duration` | Histogram | `ms` | `operation`, `status` | `operation`: `create`, `get_by_id`, `get_by_client_id`, `change_status`, `deliver`, `cancel`, `grpc_get_appointment`<br>`status`: `success`, `failure`, `not_found` | Тривалість бізнес-операцій бронювання |
+| **Catalog.Api** | `Catalog.Api` | `catalog.services.created` | Counter | `{service}` | — | — | Кількість створених послуг у каталозі |
+| **Catalog.Api** | `Catalog.Api` | `catalog.services.updated` | Counter | `{service}` | — | — | Кількість оновлених послуг |
+| **Catalog.Api** | `Catalog.Api` | `catalog.services.price_changed` | Counter | `{change}` | — | — | Кількість змін вартості послуг |
+| **Catalog.Api** | `Catalog.Api` | `catalog.services.total` | ObservableGauge | `{service}` | — | — | Загальна кількість активних послуг у каталозі |
+| **Catalog.Api** | `Catalog.Api` | `catalog.operation.duration` | Histogram | `ms` | `operation`, `status` | `operation`: `create`, `update`, `update_price`, `delete`, `get_all`, `get_by_id`, `get_by_warranty`, `grpc_get_service`<br>`status`: `success`, `failure`, `not_found` | Тривалість операцій каталогу послуг |
+| **Reviews.WebApi** | `Reviews.WebApi` | `reviews.created` | Counter | `{review}` | — | — | Загальна кількість створених відгуків |
+| **Reviews.WebApi** | `Reviews.WebApi` | `reviews.deleted` | Counter | `{review}` | — | — | Загальна кількість видалених відгуків |
+| **Reviews.WebApi** | `Reviews.WebApi` | `reviews.total` | ObservableGauge | `{review}` | — | — | Загальна кількість збережених відгуків у MongoDB |
+| **Reviews.WebApi** | `Reviews.WebApi` | `reviews.operation.duration` | Histogram | `ms` | `operation`, `status` | `operation`: `create`, `update`, `delete`, `get_list`, `get_by_id`, `grpc_get_review_by_id`, `grpc_get_reviews_for_service`<br>`status`: `success`, `failure`, `not_found` | Тривалість операцій з відгуками |
+
+> **Правило кардинальності:** Жоден тег не містить ідентифікаторів сутностей (`id`, `orderId`, `clientId`, `serviceId`), користувацьких даних чи часових міток.
+
+---
+
+### 15.3. Каталог Health Checks та статусів готовності
+
+| Сервіс | Назва перевірки | Ціль / Компонент | FailureStatus | Теги | Таймаут | Призначення |
+|---|---|---|---|---|---|---|
+| **Усі сервіси** | `self` | Власний процес | `Unhealthy` | `["live"]` | 1s | Liveness probe: перевірка чи процес запущений і обробляє запити. |
+| **Bookings.Api** | `bookings-db` | SQL Server (`BookingsDb`) | `Unhealthy` | `["database", "sql", "ready"]` | 5s | Readiness probe: доступність основної реляційної БД. |
+| **Bookings.Api** | `redis-cache` | Redis L2 Cache | **`Degraded`** | `["cache", "redis", "ready"]` | 3s | При збої Redis сервіс переходить у Degraded, продовжуючи працювати через БД. |
+| **Bookings.Api** | `cache` | L1/L2 Caching Subsystem | `Degraded` | `["ready"]` | 2s | Статистика та стан внутрішніх кешів. |
+| **Catalog.Api** | `catalog-db` | SQL Server (`CatalogDb`) | `Unhealthy` | `["database", "sql", "ready"]` | 5s | Readiness probe: доступність EF Core БД каталогу. |
+| **Catalog.Api** | `redis-cache` | Redis L2 Cache | **`Degraded`** | `["cache", "redis", "ready"]` | 3s | Збій кешу не зупиняє обслуговування запитів. |
+| **Catalog.Api** | `cache` | L1/L2 Caching Subsystem | `Degraded` | `["ready"]` | 2s | Перевірка дворівневого кешування каталогу. |
+| **Reviews.WebApi**| `reviews-db` | MongoDB (`ReviewsDb`) | `Unhealthy` | `["database", "mongo", "ready"]` | 5s | Readiness probe: доступність документної бази MongoDB. |
+| **Reviews.WebApi**| `redis-cache` | Redis L2 Cache | **`Degraded`** | `["cache", "redis", "ready"]` | 3s | Збій кешу не блокує CQRS запити. |
+| **Reviews.WebApi**| `cache` | L1/L2 Caching Subsystem | `Degraded` | `["ready"]` | 2s | Перевірка кешу відгуків. |
+| **Aggregator** | `redis-cache` | Redis Distributed Cache | **`Degraded`** | `["cache", "redis", "ready"]` | 3s | Кеш агрегованих карток. |
+| **Aggregator** | `bookings-api-grpc` | gRPC Health (`bookings-api`) | `Unhealthy` | `["grpc", "downstream", "ready"]` | 2s | Перевірка працездатності Bookings через `Health.HealthClient`. |
+| **Aggregator** | `catalog-api-grpc` | gRPC Health (`catalog-api`) | `Unhealthy` | `["grpc", "downstream", "ready"]` | 2s | Перевірка працездатності Catalog через `Health.HealthClient`. |
+| **Aggregator** | `reviews-api-grpc` | gRPC Health (`reviews-api`) | **`Degraded`** | `["grpc", "downstream", "ready"]` | 2s | Оскільки Reviews є некритичним сервісом, його відмова повертає Degraded. |
+
+---
+
+### 15.4. Структурований формат відповіді Health Checks (Критерій 11)
+
+Обидва ендпоінти повертають стандартизований JSON (клас `HealthResponseWriter` у `Platform.ServiceDefaults`):
+
+#### 1. Liveness Probe (`GET /health/live`):
+Перевіряє виключно життєздатність контейнера (тег `live` або перевірка `self`).
+```json
+{
+  "status": "Healthy",
+  "totalDuration": "00:00:00.0006241",
+  "entries": {
+    "self": {
+      "status": "Healthy",
+      "duration": "00:00:00.0000412",
+      "tags": [
+        "live"
+      ]
+    }
+  }
+}
+```
+
+#### 2. Readiness Probe (`GET /health/ready`):
+Перевіряє готовність сервісу приймати виробничий трафік (теги `ready`).
+```json
+{
+  "status": "Healthy",
+  "totalDuration": "00:00:00.0124810",
+  "entries": {
+    "catalog-db": {
+      "status": "Healthy",
+      "duration": "00:00:00.0081204",
+      "tags": [
+        "database",
+        "sql",
+        "ready"
+      ]
+    },
+    "redis-cache": {
+      "status": "Healthy",
+      "duration": "00:00:00.0023410",
+      "tags": [
+        "cache",
+        "redis",
+        "ready"
+      ]
+    },
+    "cache": {
+      "status": "Healthy",
+      "duration": "00:00:00.0002100",
+      "description": "L1: 12 entries (estimated 1536 B); L2 (Redis): online",
+      "tags": [
+        "ready"
+      ]
+    }
+  }
+}
+```
+
+---
+
+### 15.5. Ендпоінти для тестування відмовостійкості (Failure Injection)
+
+У мікросервісі `Reviews.WebApi` реалізовано контролер `TestFailureController` (доступний у Development):
+
+1. **Симуляція таймаутів:**
+   ```bash
+   GET /api/_test/delay?ms=5000
+   ```
+   Затримує відповідь на `ms` мілісекунд (перевірка `AttemptTimeout` та `TotalRequestTimeout` у клієнтах).
+
+2. **Симуляція збоїв та часткових помилок:**
+   ```bash
+   GET /api/_test/fail?rate=0.5
+   ```
+   З ймовірністю `rate` повертає `503 Service Unavailable` або `200 OK` (перевірка ретраїв, Circuit Breaker та часткової деградації агрегатора).
+
+---
+
+### 15.6. Інструкція з ручного тестування та верифікації
+
+#### 1. Запуск платформи:
+```bash
+dotnet run --project Platform.AppHost
+```
+Після запуску відкрийте Aspire Dashboard (посилання у консолі запуску).
+Усі ресурси мають зелений статус завдяки `.WithHttpHealthCheck("/health/ready")`.
+
+#### 2. Перевірка бізнес-метрик в Aspire Dashboard / Prometheus:
+- Перейдіть у вкладку **Metrics** в Aspire Dashboard.
+- Оберіть ресурс `bookings-api` -> метрика `bookings.operation.duration` (одиниці вимірювання `ms`, групування за `operation` та `status`).
+- Оберіть ресурс `catalog-api` -> метрика `catalog.services.created` та `catalog.services.price_changed`.
+- Оберіть ресурс `reviews-api` -> метрика `reviews.operation.duration`.
+
+#### 3. Перевірка відмовостійкості агрегатора до збоїв Reviews:
+- Виконайте запит до тестового ендпоінту з помилкою:
+  ```bash
+  curl -i -k "https://localhost:7210/api/_test/fail?rate=1.0"
+  ```
+- Зробіть запит до агрегатора:
+  ```bash
+  curl -i -k "https://localhost:7100/api/aggregator/orders/1/full?noCache=true"
+  ```
+- **Результат:** Запит повертає HTTP 200 OK з даними замовлення та послуг, а у масиві `warnings` міститься повідомлення: `Reviews service unavailable, omitting reviews`.
+
+#### 4. Перевірка розмикання Circuit Breaker:
+- Зробіть серію з 10 швидких запитів до несправного сервісу через HTTP-клієнт агрегатора `/full-http`.
+- У консолі Aggregator з'явиться структурований лог:
+  ```text
+  Resilience: Circuit Breaker OPENED for ReviewsClient. Fast partial degradation active.
+  ```
+- Наступні запити до Reviews миттєво відсікаються без реального виклику мережі, захищаючи ресурс від перевантаження.
+
+#### 5. Перевірка деградації Redis:
+- Зупиніть контейнер Redis у Docker: `docker stop <redis-container-id>`.
+- Виконайте запит до каталогу або агрегатора:
+  ```bash
+  curl -i -k "https://localhost:7020/api/services/1"
+  curl -i -k "https://localhost:7020/health/ready"
+  ```
+- **Результат:** Запит до каталогу успішно повертає дані з бази даних SQL Server. Ендпоінт `/health/ready` повертає загальний статус `"status": "Degraded"`, де `redis-cache` має статус `Degraded`, а `catalog-db` залишається `Healthy`. Жоден користувацький запит не падає помилкою!
+

@@ -11,18 +11,21 @@ using Reviews.Application.Reviews.DTOs;
 using Reviews.Application.Reviews.Queries.GetReviewById;
 using Reviews.Application.Reviews.Queries.GetReviewsList;
 using Reviews.Domain.Exceptions;
+using Reviews.WebApi.Metrics;
 
 /// <summary>
 /// REST API контролер для управління відгуками клієнтів детейлінг-студії (Критерій 12).
-/// Працює виключно через MediatR з підтримкою структурованого логування та трасування OpenTelemetry.
+/// Працює через MediatR з підтримкою структурованого логування, бізнес-метрик та трасування OpenTelemetry.
 /// </summary>
 public class ReviewsController : ApiController
 {
     private static readonly ActivitySource Source = new("Reviews.WebApi");
+    private readonly ReviewMetrics _metrics;
     private readonly ILogger<ReviewsController> _logger;
 
-    public ReviewsController(ILogger<ReviewsController> logger)
+    public ReviewsController(ReviewMetrics metrics, ILogger<ReviewsController> logger)
     {
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -38,17 +41,29 @@ public class ReviewsController : ApiController
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ReviewsController.GetList");
         activity?.SetTag("service.id", serviceId);
 
         _logger.LogInformation("ReviewsController: Запит списку відгуків для ServiceId={ServiceId}, сторінка {Page}", serviceId, page);
-        var result = await Mediator.Send(new GetReviewsListQuery(serviceId, page, pageSize), cancellationToken);
-        return Ok(result);
+        try
+        {
+            var result = await Mediator.Send(new GetReviewsListQuery(serviceId, page, pageSize), cancellationToken);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_list", "success");
+            _metrics.SetTotalReviewsCount((int)result.TotalCount);
+            return Ok(result);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_list", "failure");
+            throw;
+        }
     }
 
     /// <summary>
     /// Отримання детальної інформації про відгук за його MongoDB ObjectId.
-    /// Повертає заголовок ETag для оптимістичного блокування при оновленні.
     /// </summary>
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ReviewDetailDto), StatusCodes.Status200OK)]
@@ -56,19 +71,37 @@ public class ReviewsController : ApiController
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ReviewDetailDto>> GetById(string id, CancellationToken cancellationToken)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ReviewsController.GetById");
         activity?.SetTag("review.id", id);
 
         _logger.LogInformation("ReviewsController: Запит відгуку #{ReviewId}", id);
-        var result = await Mediator.Send(new GetReviewByIdQuery(id), cancellationToken);
-
-        if (result == null)
+        try
         {
-            throw new NotFoundException($"Відгук з ID '{id}' не знайдено.");
-        }
+            var result = await Mediator.Send(new GetReviewByIdQuery(id), cancellationToken);
 
-        Response.Headers.ETag = $"\"{result.Version}\"";
-        return Ok(result);
+            if (result == null)
+            {
+                sw.Stop();
+                _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id", "not_found");
+                throw new NotFoundException($"Відгук з ID '{id}' не знайдено.");
+            }
+
+            Response.Headers.ETag = $"\"{result.Version}\"";
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id", "success");
+            return Ok(result);
+        }
+        catch (NotFoundException)
+        {
+            throw;
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id", "failure");
+            throw;
+        }
     }
 
     /// <summary>
@@ -80,6 +113,7 @@ public class ReviewsController : ApiController
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create([FromBody] CreateReviewCommand command, CancellationToken cancellationToken)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ReviewsController.Create");
         activity?.SetTag("review.service_id", command.ServiceId);
         activity?.SetTag("review.rating", command.Rating);
@@ -89,14 +123,27 @@ public class ReviewsController : ApiController
             command.ServiceId,
             command.Rating);
 
-        var id = await Mediator.Send(command, cancellationToken);
-        activity?.SetTag("review.id", id);
+        try
+        {
+            var id = await Mediator.Send(command, cancellationToken);
+            activity?.SetTag("review.id", id);
 
-        return CreatedAtAction(nameof(GetById), new { id }, new { id });
+            _metrics.RecordReviewCreated();
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "create", "success");
+
+            return CreatedAtAction(nameof(GetById), new { id }, new { id });
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "create", "failure");
+            throw;
+        }
     }
 
     /// <summary>
-    /// Оновлення існуючого відгуку з підтримкою оптимістичного блокування (ExpectedVersion / If-Match).
+    /// Оновлення існуючого відгуку.
     /// </summary>
     [HttpPut("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -109,6 +156,7 @@ public class ReviewsController : ApiController
         [FromHeader(Name = "If-Match")] string? ifMatch,
         CancellationToken cancellationToken)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ReviewsController.Update");
         activity?.SetTag("review.id", id);
 
@@ -125,8 +173,19 @@ public class ReviewsController : ApiController
         }
 
         var effectiveCommand = command with { Id = id, ExpectedVersion = expectedVersion };
-        await Mediator.Send(effectiveCommand, cancellationToken);
-        return NoContent();
+        try
+        {
+            await Mediator.Send(effectiveCommand, cancellationToken);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "update", "success");
+            return NoContent();
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "update", "failure");
+            throw;
+        }
     }
 
     /// <summary>
@@ -138,11 +197,24 @@ public class ReviewsController : ApiController
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ReviewsController.Delete");
         activity?.SetTag("review.id", id);
 
         _logger.LogInformation("ReviewsController: Видалення відгуку #{ReviewId}", id);
-        await Mediator.Send(new DeleteReviewCommand(id), cancellationToken);
-        return NoContent();
+        try
+        {
+            await Mediator.Send(new DeleteReviewCommand(id), cancellationToken);
+            _metrics.RecordReviewDeleted();
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "delete", "success");
+            return NoContent();
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "delete", "failure");
+            throw;
+        }
     }
 }

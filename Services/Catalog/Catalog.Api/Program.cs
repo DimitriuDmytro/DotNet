@@ -1,4 +1,5 @@
 using Catalog.Api.Grpc;
+using Catalog.Api.Metrics;
 using Catalog.Api.Middleware;
 using Catalog.Bll.Caching;
 using Catalog.Bll.Interfaces;
@@ -11,6 +12,7 @@ using Catalog.Dal.Repositories;
 using Catalog.Dal.Seeding;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 
@@ -33,16 +35,38 @@ builder.Services.AddMemoryCache(options =>
 // Дворівневий кеш (L1 + L2), фоновий прогрів та декоратор сервісів
 builder.Services.AddCatalogCaching();
 
-// Health Check кешу (Healthy якщо L1 і Redis живі, Degraded якщо тільки L1)
-builder.Services.AddHealthChecks().AddCheck<CacheHealthCheck>("cache", tags: ["ready"]);
+// Бізнес-метрики мікросервісу (Критерії 6, 7)
+builder.Services.AddSingleton<CatalogMetrics>();
 
-// gRPC сервер із сервером-перехоплювачем логування та кореляції
+// EF Core DbContext та connection strings
+var connectionString = builder.Configuration.GetConnectionString("CatalogDb")
+    ?? "Server=(localdb)\\mssqllocaldb;Database=DetailingCatalog;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+var redisConnectionString = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
+
+// Health Checks (SQL Server, Redis Degraded, Cache L1/L2) (Критерії 8, 9)
+builder.Services.AddHealthChecks()
+    .AddSqlServer(
+        connectionString,
+        name: "catalog-db",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: ["database", "sql", "ready"],
+        timeout: TimeSpan.FromSeconds(5))
+    .AddRedis(
+        redisConnectionString,
+        name: "redis-cache",
+        failureStatus: HealthStatus.Degraded,
+        tags: ["cache", "redis", "ready"],
+        timeout: TimeSpan.FromSeconds(3))
+    .AddCheck<CacheHealthCheck>("cache", tags: ["ready"]);
+
+// gRPC сервер із перехоплювачем логування та підтримкою gRPC Health Checking Protocol (Критерій 10)
 builder.Services.AddGrpc(options =>
 {
     options.Interceptors.Add<GrpcLoggingInterceptor>();
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
 builder.Services.AddGrpcReflection();
+builder.Services.AddGrpcHealthChecks();
 
 // Реєстрація контролерів та Swagger/OpenAPI
 builder.Services.AddControllers();
@@ -75,9 +99,6 @@ builder.Services.AddAutoMapper(cfg =>
 builder.Services.AddValidatorsFromAssemblyContaining<CreateServiceDtoValidator>();
 
 // EF Core DbContext
-var connectionString = builder.Configuration.GetConnectionString("CatalogDb")
-    ?? "Server=(localdb)\\mssqllocaldb;Database=DetailingCatalog;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
-
 builder.Services.AddDbContext<CatalogDbContext>(options =>
 {
     options.UseSqlServer(connectionString, sqlOptions =>
@@ -122,6 +143,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthorization();
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();
+app.MapGrpcHealthChecksService();
 if (app.Environment.IsDevelopment())
 {
     app.MapGrpcReflectionService();

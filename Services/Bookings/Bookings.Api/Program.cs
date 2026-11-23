@@ -1,4 +1,5 @@
 using Bookings.Api.Grpc;
+using Bookings.Api.Metrics;
 using Bookings.Api.Middleware;
 using Bookings.Bll.Caching;
 using Bookings.Bll.Interfaces;
@@ -6,6 +7,7 @@ using Bookings.Bll.Mapping;
 using Bookings.Bll.Services;
 using Bookings.Dal.Interfaces;
 using Bookings.Dal.Repositories;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 
@@ -28,16 +30,37 @@ builder.Services.AddMemoryCache(options =>
 // Дворівневий кеш бронювань (L1 + L2) та декоратор сервісів
 builder.Services.AddBookingsCaching();
 
-// Health Check кешу
-builder.Services.AddHealthChecks().AddCheck<BookingsCacheHealthCheck>("cache", tags: ["ready"]);
+// Бізнес-метрики мікросервісу (Критерії 6, 7)
+builder.Services.AddSingleton<BookingMetrics>();
 
-// gRPC сервер із сервером-перехоплювачем логування та кореляції
+// Health Checks (SQL Server, Redis Degraded, Cache L1/L2) (Критерії 8, 9)
+var dbConnectionString = builder.Configuration.GetConnectionString("BookingsDb")
+    ?? "Server=(localdb)\\mssqllocaldb;Database=DetailingBookings;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+var redisConnectionString = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
+
+builder.Services.AddHealthChecks()
+    .AddSqlServer(
+        dbConnectionString,
+        name: "bookings-db",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: ["database", "sql", "ready"],
+        timeout: TimeSpan.FromSeconds(5))
+    .AddRedis(
+        redisConnectionString,
+        name: "redis-cache",
+        failureStatus: HealthStatus.Degraded,
+        tags: ["cache", "redis", "ready"],
+        timeout: TimeSpan.FromSeconds(3))
+    .AddCheck<BookingsCacheHealthCheck>("cache", tags: ["ready"]);
+
+// gRPC сервер із перехоплювачем логування та підтримкою gRPC Health Checking Protocol (Критерій 10)
 builder.Services.AddGrpc(options =>
 {
     options.Interceptors.Add<GrpcLoggingInterceptor>();
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
 builder.Services.AddGrpcReflection();
+builder.Services.AddGrpcHealthChecks();
 
 // Реєстрація контролерів та документації Swagger/OpenAPI
 builder.Services.AddControllers();
@@ -95,6 +118,7 @@ app.UseSwaggerUI(c =>
 app.UseAuthorization();
 app.MapControllers();
 app.MapGrpcService<BookingsGrpcService>();
+app.MapGrpcHealthChecksService();
 if (app.Environment.IsDevelopment())
 {
     app.MapGrpcReflectionService();

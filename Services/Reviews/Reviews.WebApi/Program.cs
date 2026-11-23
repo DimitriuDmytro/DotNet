@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
@@ -7,6 +8,7 @@ using Reviews.Infrastructure;
 using Reviews.Infrastructure.Persistence;
 using Reviews.Infrastructure.Seeding;
 using Reviews.WebApi.Grpc;
+using Reviews.WebApi.Metrics;
 using Reviews.WebApi.Middleware;
 using Serilog;
 
@@ -30,21 +32,34 @@ builder.Services.AddMemoryCache(options =>
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
 
-// Health Checks для MongoDB та кешу
+// Бізнес-метрики мікросервісу (Критерії 6, 7)
+builder.Services.AddSingleton<ReviewMetrics>();
+
+// Health Checks для MongoDB та Redis кешу зі статусом Degraded (Критерії 8, 9)
+var redisConnectionString = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
 builder.Services.AddHealthChecks()
     .AddMongoDb(
         sp => sp.GetRequiredService<MongoDbContext>().Database,
-        name: "mongodb",
+        name: "reviews-db",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: ["database", "mongo", "ready"],
+        timeout: TimeSpan.FromSeconds(5))
+    .AddRedis(
+        redisConnectionString,
+        name: "redis-cache",
+        failureStatus: HealthStatus.Degraded,
+        tags: ["cache", "redis", "ready"],
         timeout: TimeSpan.FromSeconds(3))
     .AddCheck<ReviewsCacheHealthCheck>("cache", tags: ["ready"]);
 
-// gRPC сервер із сервером-перехоплювачем логування та кореляції
+// gRPC сервер із перехоплювачем логування та підтримкою gRPC Health Checking Protocol (Критерій 10)
 builder.Services.AddGrpc(options =>
 {
     options.Interceptors.Add<GrpcLoggingInterceptor>();
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
 builder.Services.AddGrpcReflection();
+builder.Services.AddGrpcHealthChecks();
 
 // ProblemDetails та централізований обробник помилок (Критерій 13)
 builder.Services.AddProblemDetails();
@@ -83,6 +98,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapGrpcService<ReviewsGrpcService>();
+app.MapGrpcHealthChecksService();
 if (app.Environment.IsDevelopment())
 {
     app.MapGrpcReflectionService();

@@ -4,12 +4,13 @@ using System.Diagnostics;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Catalog.Api.Metrics;
 using Catalog.Bll.DTOs;
 using Catalog.Bll.Interfaces;
 
 /// <summary>
 /// Асинхронний контролер для управління послугами детейлінг-студії (Критерії 8, 10, 11).
-/// Тонкий шар представлення з підтримкою структурованого логування та трасування OpenTelemetry.
+/// Тонкий шар представлення з підтримкою структурованого логування, метрик та трасування OpenTelemetry.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -17,19 +18,21 @@ public class ServicesController : ControllerBase
 {
     private static readonly ActivitySource Source = new("Catalog.Api");
     private readonly IServiceService _serviceService;
+    private readonly CatalogMetrics _metrics;
     private readonly ILogger<ServicesController> _logger;
 
     public ServicesController(
         IServiceService serviceService,
+        CatalogMetrics metrics,
         ILogger<ServicesController> logger)
     {
         _serviceService = serviceService;
+        _metrics = metrics;
         _logger = logger;
     }
 
     /// <summary>
     /// Отримання пагінованого списку послуг із фільтрацією та сортуванням на рівні SQL (Критерій 10).
-    /// Метадані пагінації повертаються як у тілі відповіді PagedResult, так і в HTTP-заголовках X-*.
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(PagedResult<ServiceDto>), StatusCodes.Status200OK)]
@@ -37,52 +40,87 @@ public class ServicesController : ControllerBase
         [FromQuery] ServiceQuery query,
         CancellationToken cancellationToken = default)
     {
-        var result = await _serviceService.GetPagedAsync(query, cancellationToken);
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await _serviceService.GetPagedAsync(query, cancellationToken);
 
-        // Критерій 10: повернення метаданих пагінації в HTTP-заголовках
-        Response.Headers.Append("X-Total-Count", result.TotalCount.ToString());
-        Response.Headers.Append("X-Page", result.Page.ToString());
-        Response.Headers.Append("X-Page-Size", result.PageSize.ToString());
-        Response.Headers.Append("X-Total-Pages", result.TotalPages.ToString());
+            Response.Headers.Append("X-Total-Count", result.TotalCount.ToString());
+            Response.Headers.Append("X-Page", result.Page.ToString());
+            Response.Headers.Append("X-Page-Size", result.PageSize.ToString());
+            Response.Headers.Append("X-Total-Pages", result.TotalPages.ToString());
 
-        return Ok(result);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_all", "success");
+            _metrics.SetTotalServicesCount(result.TotalCount);
+
+            return Ok(result);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_all", "failure");
+            throw;
+        }
     }
 
     /// <summary>
     /// Отримання послуги за ID разом із категорією, специфікацією, фотографіями та пакетами.
-    /// Критерій 6.1 (Eager Loading): виконує РІВНО 1 SQL-запит (Include/ThenInclude).
     /// </summary>
     [HttpGet("{id:long}")]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServiceDetailDto>> GetById(long id, CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ServicesController.GetById");
         activity?.SetTag("service.id", id);
 
         _logger.LogInformation("ServicesController: Запит послуги #{ServiceId}", id);
-        var service = await _serviceService.GetByIdAsync(id, cancellationToken);
-        return Ok(service);
+        try
+        {
+            var service = await _serviceService.GetByIdAsync(id, cancellationToken);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id", "success");
+            return Ok(service);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id", "failure");
+            throw;
+        }
     }
 
     /// <summary>
     /// Отримання послуги за ID за допомогою явного завантаження (Explicit Loading).
-    /// Критерій 6.2: виконує 2+ окремих SQL-запитів через Entry().Reference/Collection.LoadAsync().
     /// </summary>
     [HttpGet("{id:long}/explicit")]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServiceDetailDto>> GetByIdExplicit(long id, CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ServicesController.GetByIdExplicit");
         activity?.SetTag("service.id", id);
 
-        var service = await _serviceService.GetByIdExplicitAsync(id, cancellationToken);
-        return Ok(service);
+        try
+        {
+            var service = await _serviceService.GetByIdExplicitAsync(id, cancellationToken);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id_explicit", "success");
+            return Ok(service);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_id_explicit", "failure");
+            throw;
+        }
     }
 
     /// <summary>
-    /// Отримання послуг з гарантією від minWarrantyMonths місяців (Критерій 14, друга специфікація).
+    /// Отримання послуг з гарантією від minWarrantyMonths місяців.
     /// </summary>
     [HttpGet("by-warranty")]
     [ProducesResponseType(typeof(IReadOnlyList<ServiceDto>), StatusCodes.Status200OK)]
@@ -90,13 +128,24 @@ public class ServicesController : ControllerBase
         [FromQuery] int minWarrantyMonths = 6,
         CancellationToken cancellationToken = default)
     {
-        var services = await _serviceService.GetWithMinWarrantyAsync(minWarrantyMonths, cancellationToken);
-        return Ok(services);
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var services = await _serviceService.GetWithMinWarrantyAsync(minWarrantyMonths, cancellationToken);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_warranty", "success");
+            return Ok(services);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "get_by_warranty", "failure");
+            throw;
+        }
     }
 
     /// <summary>
-    /// Створення нової послуги в каталозі (Критерій 8 та 11).
-    /// Валідація через FluentValidation -> 400 ValidationProblemDetails, перевірка унікальності -> 409 Conflict.
+    /// Створення нової послуги в каталозі.
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(ServiceDetailDto), StatusCodes.Status201Created)]
@@ -107,23 +156,36 @@ public class ServicesController : ControllerBase
         [FromServices] IValidator<CreateServiceDto> validator,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ServicesController.Create");
         activity?.SetTag("service.name", dto.Name);
         activity?.SetTag("service.category_id", dto.CategoryId);
 
         _logger.LogInformation("ServicesController: Створення послуги '{ServiceName}' у категорії #{CategoryId}", dto.Name, dto.CategoryId);
 
-        // Критерій 11: явний виклик FluentValidation валідатора
         var validationResult = await validator.ValidateAsync(dto, cancellationToken);
         if (!validationResult.IsValid)
         {
             return ValidationProblem(new ValidationProblemDetails(validationResult.ToDictionary()));
         }
 
-        var created = await _serviceService.CreateAsync(dto, cancellationToken);
-        activity?.SetTag("service.id", created.Id);
+        try
+        {
+            var created = await _serviceService.CreateAsync(dto, cancellationToken);
+            activity?.SetTag("service.id", created.Id);
 
-        return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+            _metrics.RecordServiceCreated();
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "create", "success");
+
+            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "create", "failure");
+            throw;
+        }
     }
 
     /// <summary>
@@ -140,6 +202,7 @@ public class ServicesController : ControllerBase
         [FromServices] IValidator<UpdateServiceDto> validator,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ServicesController.Update");
         activity?.SetTag("service.id", id);
 
@@ -151,8 +214,20 @@ public class ServicesController : ControllerBase
             return ValidationProblem(new ValidationProblemDetails(validationResult.ToDictionary()));
         }
 
-        var updated = await _serviceService.UpdateAsync(id, dto, cancellationToken);
-        return Ok(updated);
+        try
+        {
+            var updated = await _serviceService.UpdateAsync(id, dto, cancellationToken);
+            _metrics.RecordServiceUpdated();
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "update", "success");
+            return Ok(updated);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "update", "failure");
+            throw;
+        }
     }
 
     /// <summary>
@@ -169,6 +244,7 @@ public class ServicesController : ControllerBase
         [FromServices] IValidator<UpdatePriceDto> validator,
         CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ServicesController.UpdatePrice");
         activity?.SetTag("service.id", id);
         activity?.SetTag("service.price", dto.NewPrice);
@@ -181,8 +257,20 @@ public class ServicesController : ControllerBase
             return ValidationProblem(new ValidationProblemDetails(validationResult.ToDictionary()));
         }
 
-        var updated = await _serviceService.UpdatePriceAsync(id, dto, cancellationToken);
-        return Ok(updated);
+        try
+        {
+            var updated = await _serviceService.UpdatePriceAsync(id, dto, cancellationToken);
+            _metrics.RecordPriceChanged();
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "update_price", "success");
+            return Ok(updated);
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "update_price", "failure");
+            throw;
+        }
     }
 
     /// <summary>
@@ -193,12 +281,24 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
         using var activity = Source.StartActivity("ServicesController.Delete");
         activity?.SetTag("service.id", id);
 
         _logger.LogInformation("ServicesController: Видалення послуги #{ServiceId}", id);
-        await _serviceService.DeleteAsync(id, cancellationToken);
-        return NoContent();
+        try
+        {
+            await _serviceService.DeleteAsync(id, cancellationToken);
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "delete", "success");
+            return NoContent();
+        }
+        catch
+        {
+            sw.Stop();
+            _metrics.RecordOperationDuration(sw.Elapsed.TotalMilliseconds, "delete", "failure");
+            throw;
+        }
     }
 
     /// <summary>
@@ -213,6 +313,10 @@ public class ServicesController : ControllerBase
         [FromBody] AddServiceImageDto dto,
         CancellationToken cancellationToken = default)
     {
+        using var activity = Source.StartActivity("ServicesController.AddImage");
+        activity?.SetTag("service.id", id);
+
+        _logger.LogInformation("ServicesController: Додавання фото до послуги #{ServiceId}", id);
         var image = await _serviceService.AddImageAsync(id, dto, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id }, image);
     }
@@ -220,28 +324,17 @@ public class ServicesController : ControllerBase
     /// <summary>
     /// Видалення фотографії з галереї послуги.
     /// </summary>
-    [HttpDelete("{id:long}/images/{imageId:long}")]
+    [HttpDelete("{serviceId:long}/images/{imageId:long}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> RemoveImage(long id, long imageId, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> RemoveImage(long serviceId, long imageId, CancellationToken cancellationToken = default)
     {
-        await _serviceService.RemoveImageAsync(id, imageId, cancellationToken);
-        return NoContent();
-    }
+        using var activity = Source.StartActivity("ServicesController.RemoveImage");
+        activity?.SetTag("service.id", serviceId);
+        activity?.SetTag("image.id", imageId);
 
-    /// <summary>
-    /// Додавання або оновлення технічної специфікації послуги (1:1).
-    /// </summary>
-    [HttpPut("{id:long}/spec")]
-    [ProducesResponseType(typeof(ServiceSpecDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ServiceSpecDto>> UpsertSpec(
-        long id,
-        [FromBody] UpsertServiceSpecDto dto,
-        CancellationToken cancellationToken = default)
-    {
-        var spec = await _serviceService.UpsertSpecAsync(id, dto, cancellationToken);
-        return Ok(spec);
+        _logger.LogInformation("ServicesController: Видалення фото #{ImageId} з послуги #{ServiceId}", imageId, serviceId);
+        await _serviceService.RemoveImageAsync(serviceId, imageId, cancellationToken);
+        return NoContent();
     }
 }

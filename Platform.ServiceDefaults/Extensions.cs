@@ -58,7 +58,14 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Стандартні політики відмовостійкості (Timeout, Retry, CircuitBreaker)
+            // Критерій 1: Захист від каскадних збоїв (Cascading Failures)
+            // Стандартний конвеєр відмовостійкості AddStandardResilienceHandler налаштовує:
+            // 1) Total Request Timeout (загальний час виконання запиту)
+            // 2) Retry Strategy (експоненційний повтор запитів при транзитних помилках)
+            // 3) Circuit Breaker (запобіжник для відсікання навантаження від сервісів, що впали)
+            // 4) Attempt Timeout (таймаут на окрему спробу)
+            // 5) Rate Limiter (обмеження інтенсивності вихідних викликів)
+            // Це забезпечує базовий рівень надійності для всіх вихідних HTTP-клієнтів між сервісами платформи.
             http.AddStandardResilienceHandler();
 
             // Автоматичне виявлення сервісів через Aspire Service Discovery
@@ -94,7 +101,15 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddMeter("Catalog.Cache", "Bookings.Cache", "Reviews.Cache", "Aggregator.Cache");
+                    .AddMeter(
+                        "Polly",
+                        "Bookings.Api",
+                        "Catalog.Api",
+                        "Reviews.WebApi",
+                        "Catalog.Cache",
+                        "Bookings.Cache",
+                        "Reviews.Cache",
+                        "Aggregator.Cache");
             })
             .WithTracing(tracing =>
             {
@@ -169,15 +184,38 @@ public static class Extensions
     }
 
     /// <summary>
-    /// Мапить стандартні ендпоінти перевірки здоров'я /health та /alive.
+    /// Мапить стандартизовані ендпоінти перевірки здоров'я:
+    /// /health/live (Liveness) - перевірка лише життєздатності процесу
+    /// /health/ready (Readiness) - перевірка готовності зовнішніх залежностей (БД, кеш, downstream gRPC)
+    /// /health та /alive - для зворотної сумісності.
+    /// Усі ендпоінти повертають структурований JSON (Критерій 11).
     /// </summary>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        app.MapHealthChecks(HealthEndpointPath);
+        // 1. Liveness probe (/health/live): перевірка лише працездатності процесу застосунку без зовнішніх залежностей
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("live") || r.Name.Equals("self", StringComparison.OrdinalIgnoreCase),
+            ResponseWriter = HealthResponseWriter.WriteJsonResponse
+        });
+
+        // 2. Readiness probe (/health/ready): перевірка готовності приймати трафік (БД, Redis, downstream gRPC)
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("ready"),
+            ResponseWriter = HealthResponseWriter.WriteJsonResponse
+        });
+
+        // 3. Зворотна сумісність для стандартних ендпоінтів платформи
+        app.MapHealthChecks(HealthEndpointPath, new HealthCheckOptions
+        {
+            ResponseWriter = HealthResponseWriter.WriteJsonResponse
+        });
 
         app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
-            Predicate = r => r.Tags.Contains("live")
+            Predicate = r => r.Tags.Contains("live") || r.Name.Equals("self", StringComparison.OrdinalIgnoreCase),
+            ResponseWriter = HealthResponseWriter.WriteJsonResponse
         });
 
         return app;
