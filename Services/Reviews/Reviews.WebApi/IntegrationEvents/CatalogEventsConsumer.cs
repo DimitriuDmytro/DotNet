@@ -3,24 +3,22 @@ namespace Reviews.WebApi.IntegrationEvents;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Platform.EventBus.Consumer;
 using Platform.EventBus.Events;
+using Platform.EventBus.Metrics;
 using Platform.EventBus.Serialization;
 using Platform.EventBus.Topology;
 using Platform.EventBus.Tracing;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
-using Reviews.Application.Caching;
-using Reviews.Application.Reviews.Commands.UpdateServiceNameInReviews;
-using Reviews.Domain.Interfaces;
 
 /// <summary>
 /// Фоновий споживач подій каталогу для оновлення денормалізованих даних у MongoDB (Критерії 7, 8, 9, 10, 11, 12, 13).
 /// Працює через RabbitMQ 7.x AsyncEventingBasicConsumer з ручним підтвердженням (autoAck: false).
+/// Делегує обробку виділеним класам-обробникам IIntegrationEventHandler.
 /// </summary>
 public class CatalogEventsConsumer : BackgroundService
 {
@@ -117,6 +115,15 @@ public class CatalogEventsConsumer : BackgroundService
         var messageIdStr = ea.BasicProperties?.MessageId;
         Guid.TryParse(messageIdStr, out var eventId);
 
+        // Критерій 12: Logging scope збагачує всі логи контекстом
+        using var logScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["CorrelationId"] = correlationId,
+            ["EventId"] = eventId,
+            ["EventType"] = messageType,
+            ["Queue"] = EventBusTopology.ReviewsCatalogSyncQueue
+        });
+
         // Критерій 8: Перевірка на невідновлювані помилки валідації та десеріалізації
         try
         {
@@ -142,12 +149,12 @@ public class CatalogEventsConsumer : BackgroundService
             }
             else
             {
-                // Невідомий тип повідомлення -> невідновлювана помилка -> NACK без повторної черги (DLQ)
                 _logger.LogError(
                     "Permanent failure: Unknown message type {EventType} with MessageId {MessageId}. Routing to DLQ.",
                     messageType,
                     messageIdStr);
 
+                EventBusMetrics.RecordFailed(messageType ?? "Unknown", EventBusTopology.ReviewsCatalogSyncQueue, "UnknownType");
                 await channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false, cancellationToken: stoppingToken);
                 return;
             }
@@ -155,6 +162,7 @@ public class CatalogEventsConsumer : BackgroundService
             if (integrationEvent == null)
             {
                 _logger.LogError("Permanent failure: Deserialized event is null for MessageId {MessageId}. Routing to DLQ.", messageIdStr);
+                EventBusMetrics.RecordFailed(messageType ?? "Unknown", EventBusTopology.ReviewsCatalogSyncQueue, "NullEvent");
                 await channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false, cancellationToken: stoppingToken);
                 return;
             }
@@ -166,76 +174,35 @@ public class CatalogEventsConsumer : BackgroundService
 
             // Окремий DI Scope на кожне повідомлення (Критерій 7)
             using var scope = _serviceProvider.CreateScope();
-            var tracker = scope.ServiceProvider.GetRequiredService<IProcessedEventTracker>();
 
-            // Критерій 9: Ідемпотентна обробка через колекцію processedEvents
-            if (eventId != Guid.Empty)
-            {
-                var isNew = await tracker.TryTrackAsync(eventId, stoppingToken);
-                if (!isNew)
-                {
-                    _logger.LogWarning(
-                        "Duplicate event detected: EventId {EventId}, Type {EventType}. Skipping duplicate and ACKing.",
-                        eventId,
-                        messageType);
-
-                    await channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
-                    return;
-                }
-            }
-
-            // Критерій 10: Реплікація денормалізованих даних у MongoDB через MediatR
-            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-            var cache = scope.ServiceProvider.GetService<IReviewsTwoLevelCache>();
-
+            // Критерій 9 & 10: Делегування обробки виділеному класу-обробнику
             switch (integrationEvent)
             {
                 case ProductRenamedEvent renameEvent:
-                    await mediator.Send(
-                        new UpdateServiceNameInReviewsCommand(renameEvent.ProductId, renameEvent.NewName, renameEvent.OccurredAt),
-                        stoppingToken);
-
-                    _logger.LogInformation(
-                        "Dispatched UpdateServiceNameInReviewsCommand for ProductId {ProductId}: '{OldName}' -> '{NewName}'. CorrelationId: {CorrelationId}",
-                        renameEvent.ProductId,
-                        renameEvent.OldName,
-                        renameEvent.NewName,
-                        correlationId);
+                    var renameHandler = scope.ServiceProvider.GetRequiredService<IIntegrationEventHandler<ProductRenamedEvent>>();
+                    await renameHandler.HandleAsync(renameEvent, stoppingToken);
                     break;
 
                 case ProductDeletedEvent deletedEvent:
-                    _logger.LogInformation(
-                        "Received product deleted event for ProductId {ProductId}. CorrelationId: {CorrelationId}",
-                        deletedEvent.ProductId,
-                        correlationId);
-
-                    if (cache != null)
-                    {
-                        await cache.RemoveAsync($"reviews:service:{deletedEvent.ProductId}", "Product deleted via event", stoppingToken);
-                        await cache.RemoveAsync("reviews:list:all", "Product deleted via event", stoppingToken);
-                    }
+                    var deletedHandler = scope.ServiceProvider.GetRequiredService<IIntegrationEventHandler<ProductDeletedEvent>>();
+                    await deletedHandler.HandleAsync(deletedEvent, stoppingToken);
                     break;
 
                 case ProductCreatedEvent createdEvent:
-                    _logger.LogInformation(
-                        "Received product created event for ProductId {ProductId}: '{ProductName}'. CorrelationId: {CorrelationId}",
-                        createdEvent.ProductId,
-                        createdEvent.ProductName,
-                        correlationId);
+                    var createdHandler = scope.ServiceProvider.GetRequiredService<IIntegrationEventHandler<ProductCreatedEvent>>();
+                    await createdHandler.HandleAsync(createdEvent, stoppingToken);
                     break;
 
                 case ProductPriceChangedEvent priceEvent:
-                    _logger.LogInformation(
-                        "Received product price changed event for ProductId {ProductId}: {OldPrice} -> {NewPrice}. CorrelationId: {CorrelationId}",
-                        priceEvent.ProductId,
-                        priceEvent.OldPrice,
-                        priceEvent.NewPrice,
-                        correlationId);
+                    var priceHandler = scope.ServiceProvider.GetRequiredService<IIntegrationEventHandler<ProductPriceChangedEvent>>();
+                    await priceHandler.HandleAsync(priceEvent, stoppingToken);
                     break;
             }
 
             // Успішне підтвердження ACK
             await channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
+            EventBusMetrics.RecordConsumed(messageType ?? "Unknown", EventBusTopology.ReviewsCatalogSyncQueue, "Success");
+
             _logger.LogInformation(
                 "Event {EventType} with ID {EventId} processed and ACKed successfully",
                 messageType,
@@ -249,6 +216,7 @@ public class CatalogEventsConsumer : BackgroundService
                 "Permanent JSON deserialization error for MessageId {MessageId}. NACKing to DLQ.",
                 messageIdStr);
 
+            EventBusMetrics.RecordFailed(messageType ?? "JsonError", EventBusTopology.ReviewsCatalogSyncQueue, "JsonException");
             await channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false, cancellationToken: stoppingToken);
         }
         catch (Exception ex)
@@ -260,6 +228,7 @@ public class CatalogEventsConsumer : BackgroundService
                 messageType,
                 eventId);
 
+            EventBusMetrics.RecordFailed(messageType ?? "Transient", EventBusTopology.ReviewsCatalogSyncQueue, "TransientRetry");
             await DeadLetterHelper.RetryOrDeadLetterAsync(channel, ea, ex, _logger, stoppingToken);
         }
     }

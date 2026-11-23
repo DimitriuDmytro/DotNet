@@ -22,6 +22,10 @@ builder.AddRedisDistributedCache("redis");
 // RabbitMQ Messaging via Aspire (Критерій 2, 7)
 builder.AddRabbitMQClient("messaging");
 builder.Services.AddHostedService<Bookings.Api.IntegrationEvents.CatalogEventsConsumer>();
+builder.Services.AddScoped<Platform.EventBus.Consumer.IIntegrationEventHandler<Platform.EventBus.Events.ProductPriceChangedEvent>, Bookings.Api.IntegrationEvents.Handlers.ProductPriceChangedEventHandler>();
+builder.Services.AddScoped<Platform.EventBus.Consumer.IIntegrationEventHandler<Platform.EventBus.Events.ProductRenamedEvent>, Bookings.Api.IntegrationEvents.Handlers.ProductRenamedEventHandler>();
+builder.Services.AddScoped<Platform.EventBus.Consumer.IIntegrationEventHandler<Platform.EventBus.Events.ProductCreatedEvent>, Bookings.Api.IntegrationEvents.Handlers.ProductCreatedEventHandler>();
+builder.Services.AddScoped<Platform.EventBus.Consumer.IIntegrationEventHandler<Platform.EventBus.Events.ProductDeletedEvent>, Bookings.Api.IntegrationEvents.Handlers.ProductDeletedEventHandler>();
 
 // L1 Memory Cache з обмеженням розміру (SizeLimit) та відстеженням статистики
 builder.Services.AddMemoryCache(options =>
